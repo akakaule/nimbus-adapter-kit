@@ -47,7 +47,14 @@ public sealed class CatalogTests
         {
             var sessionKey = type.GetCustomAttribute<SessionKeyAttribute>(inherit: true);
             Assert.IsNotNull(sessionKey, $"{type.Name} has no [SessionKey].");
-            Assert.IsNotNull(type.GetProperty(sessionKey.PropertyName), $"{type.Name}'s [SessionKey] names '{sessionKey.PropertyName}', which is not a property.");
+            var property = type.GetProperty(sessionKey.PropertyName);
+            Assert.IsNotNull(property, $"{type.Name}'s [SessionKey] names '{sessionKey.PropertyName}', which is not a property.");
+
+            // GetSessionId() falls back to a random session when the key is null. [Required] makes
+            // the publisher reject such an event instead of silently losing the ordering.
+            Assert.IsNotNull(
+                property.GetCustomAttribute<System.ComponentModel.DataAnnotations.RequiredAttribute>(),
+                $"{type.Name}.{property.Name} is the session key, so it must be [Required].");
         }
     }
 

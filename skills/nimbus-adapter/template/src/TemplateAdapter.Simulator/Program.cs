@@ -34,7 +34,7 @@ var api = app.MapGroup("/api").AddEndpointFilter(async (context, next) =>
     {
         if (fault.RetryAfterSeconds is int seconds)
             context.HttpContext.Response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return Error(fault.Status, fault.Status == StatusCodes.Status429TooManyRequests ? "TooManyRequests" : "ServiceUnavailable", "Injected by the simulator.");
+        return Error(fault.Status, fault.Code, fault.Message);
     }
 
     return await next(context);
@@ -74,18 +74,22 @@ emulator.MapPost("/accounts/{accountKey}/own", (string accountKey, SimulatorStat
     return Results.NoContent();
 });
 
-// Example: POST /emulator/faults {"status":503,"durationSeconds":30} opens an "update window";
-// {"status":429,"count":5,"retryAfterSeconds":2} throttles the next five calls.
+// Examples:
+//   {"status":503,"durationSeconds":30}                    an "update window"
+//   {"status":429,"count":5,"retryAfterSeconds":2}         throttles the next five calls
+//   {"status":400,"count":1,"code":"0x80040265","message":"A plug-in refused the change."}
 emulator.MapPost("/faults", (FaultRequest request, SimulatorState state, TimeProvider clock) =>
 {
-    if (request.Status is not (429 or 500 or 502 or 503 or 504))
-        return Results.BadRequest("status must be 429, 500, 502, 503 or 504.");
+    if (request.Status is < 400 or > 599)
+        return Results.BadRequest("status must be a 4xx or 5xx code.");
 
     state.PlanFault(new FaultPlan(
         request.Status,
         request.Count,
         request.DurationSeconds is int seconds ? clock.GetUtcNow().AddSeconds(seconds) : null,
-        request.RetryAfterSeconds));
+        request.RetryAfterSeconds,
+        request.Code ?? (request.Status == StatusCodes.Status429TooManyRequests ? "TooManyRequests" : $"Simulated{request.Status}"),
+        request.Message ?? "Injected by the simulator."));
     return Results.NoContent();
 });
 

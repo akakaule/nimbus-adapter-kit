@@ -83,12 +83,31 @@ public sealed class ExternalSystemClientTests
     [DataRow(HttpStatusCode.Created, UpsertResult.Created)]
     [DataRow(HttpStatusCode.OK, UpsertResult.Updated)]
     [DataRow(HttpStatusCode.NoContent, UpsertResult.Updated)]
-    [DataRow(HttpStatusCode.Conflict, UpsertResult.OwnedByExternalSystem)]
     public async Task Upsert_MapsTheAnswer_ToAnOutcome(HttpStatusCode status, UpsertResult expected)
     {
         var client = Client(StubHandler.Returning(status));
 
         Assert.AreEqual(expected, await client.UpsertAccountAsync(Account, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task AConflictThatSaysOwned_IsAnOutcome()
+    {
+        var client = Client(StubHandler.Returning(HttpStatusCode.Conflict, """{"error":{"code":"OwnedByExternalSystem","message":"Mastered in ExternalSystem."}}"""));
+
+        Assert.AreEqual(UpsertResult.OwnedByExternalSystem, await client.UpsertAccountAsync(Account, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task AnyOtherConflict_IsRejected_NeverSkipped()
+    {
+        // 409 also means "the record changed under you" (a concurrency conflict). Skipping it would
+        // silently drop the change, so it fails and an operator looks at it.
+        var client = Client(StubHandler.Returning(HttpStatusCode.Conflict, """{"error":{"code":"Request_EntityChanged","message":"Another user has already changed the record."}}"""));
+
+        var ex = await Assert.ThrowsExactlyAsync<ExternalSystemRejectedException>(() => client.UpsertAccountAsync(Account, CancellationToken.None));
+
+        Assert.AreEqual("Request_EntityChanged", ex.ErrorCode);
     }
 
     [TestMethod]

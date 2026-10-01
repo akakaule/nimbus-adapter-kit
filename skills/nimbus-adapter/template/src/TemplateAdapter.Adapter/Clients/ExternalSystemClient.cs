@@ -16,6 +16,9 @@ public sealed class ExternalSystemClient(HttpClient http) : IExternalSystemClien
     private const string ApiName = "ExternalSystem API";
     private const string AccountsPath = "api/accounts";
 
+    /// <summary>The error code with which the API refuses a write because it owns the record.</summary>
+    private const string OwnedErrorCode = "OwnedByExternalSystem";
+
     /// <inheritdoc />
     public async Task<ExternalSystemAccount?> GetAccountAsync(string accountKey, CancellationToken cancellationToken)
     {
@@ -39,8 +42,14 @@ public sealed class ExternalSystemClient(HttpClient http) : IExternalSystemClien
         using var response = await HttpFailure.SendAsync(
             () => http.PutAsJsonAsync(AccountUri(account.AccountKey), account, cancellationToken), operation, ApiName, cancellationToken).ConfigureAwait(false);
 
-        if (response.StatusCode == HttpStatusCode.Conflict)
+        // Ownership is a business outcome only when the API says so explicitly. Real systems also
+        // answer 409 (or 412) for concurrency conflicts, and those must fail as rejections, never
+        // be skipped silently. See the system pack for how your system signals ownership.
+        if (response.StatusCode == HttpStatusCode.Conflict
+            && await HttpFailure.ReadErrorCodeAsync(response, cancellationToken).ConfigureAwait(false) == OwnedErrorCode)
+        {
             return UpsertResult.OwnedByExternalSystem;
+        }
 
         await HttpFailure.ThrowOnFailureAsync(response, operation, ApiName, cancellationToken).ConfigureAwait(false);
         return response.StatusCode == HttpStatusCode.Created ? UpsertResult.Created : UpsertResult.Updated;

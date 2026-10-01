@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  template:
+    name: Template builds and tests in place
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build (Release)
+        run: dotnet build skills/nimbus-adapter/template/TemplateAdapter.slnx -c Release
+      - name: Test
+        run: dotnet test skills/nimbus-adapter/template/TemplateAdapter.slnx -c Release --no-build
+
+  instantiate:
+    name: Every template combination instantiates, builds and passes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install Bicep
+        run: az bicep install
+      - name: Instantiate matrix
+        shell: pwsh
+        run: ./eng/instantiate-matrix.ps1
+
+  snippets:
+    name: System-pack snippets compile in the adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify snippets
+        shell: pwsh
+        run: ./eng/verify-snippets.ps1
+
+  content:
+    name: Skill content and plugin manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Content checks (stale APIs, frontmatter, links)
+        shell: pwsh
+        run: ./eng/check-content.ps1
+
+  anonymization:
+    name: No customer names
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Denylist scan
+        shell: pwsh
+        env:
+          ANONYMIZATION_DENYLIST: ${{ secrets.ANONYMIZATION_DENYLIST }}
+        run: ./eng/check-anonymization.ps1
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

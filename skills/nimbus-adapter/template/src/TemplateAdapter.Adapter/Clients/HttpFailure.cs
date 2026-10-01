@@ -95,6 +95,10 @@ internal static class HttpFailure
         return null;
     }
 
+    /// <summary>Reads <c>error.code</c> from a response's OData-style error body, or null.</summary>
+    public static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response, CancellationToken cancellationToken) =>
+        ReadErrorCode(await ReadBodyAsync(response, cancellationToken).ConfigureAwait(false));
+
     /// <summary>Reads <c>error.code</c> from an OData-style error body (Dataverse, Business Central and F&amp;O all use it).</summary>
     private static string? ReadErrorCode(string body)
     {

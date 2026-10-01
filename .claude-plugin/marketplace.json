@@ -1,0 +1,17 @@
+{
+  "name": "nimbus-adapter-kit",
+  "owner": {
+    "name": "Alvin Kaule"
+  },
+  "metadata": {
+    "description": "Agent skills for building NimBus adapters."
+  },
+  "plugins": [
+    {
+      "name": "nimbus-adapter",
+      "source": "./",
+      "description": "Build, extend and review NimBus adapters (patterns, Dataverse/BC/F&O packs, checklists, dotnet new template).",
+      "version": "0.1.0"
+    }
+  ]
+}
