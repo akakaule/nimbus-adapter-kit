@@ -1,0 +1,14 @@
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+.idea/
+TestResults/
+artifacts/
+# Local agent state (a materialised skill install is build output)
+.claude/settings.local.json
+.claude/skills/
+.agents/skills/
+# Template instantiation scratch output
+/.instantiate/
