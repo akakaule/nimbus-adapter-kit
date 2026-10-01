@@ -1,0 +1,44 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- One NimBus version for every Akaule.NimBus.* package. Upgrade NimBus by changing this line;
+         keep it equal to the NimBus version your Resolver and WebApp run. -->
+    <NimBusVersion>4.2.0</NimBusVersion>
+    <AspireVersion>13.5.4</AspireVersion>
+  </PropertyGroup>
+
+  <ItemGroup Label="NimBus">
+    <PackageVersion Include="Akaule.NimBus.Abstractions" Version="$(NimBusVersion)" />
+    <PackageVersion Include="Akaule.NimBus.Core" Version="$(NimBusVersion)" />
+    <PackageVersion Include="Akaule.NimBus.SDK" Version="$(NimBusVersion)" />
+    <PackageVersion Include="Akaule.NimBus.ServiceBus" Version="$(NimBusVersion)" />
+<!--#if (Inbox) -->
+    <PackageVersion Include="Akaule.NimBus.Inbox.SqlServer" Version="$(NimBusVersion)" />
+<!--#endif -->
+    <PackageVersion Include="Akaule.NimBus.OpenTelemetry" Version="$(NimBusVersion)" />
+    <PackageVersion Include="Akaule.NimBus.Testing" Version="$(NimBusVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Hosting and clients">
+    <PackageVersion Include="Aspire.Azure.Messaging.ServiceBus" Version="$(AspireVersion)" />
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.9.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Observability">
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+    <PackageVersion Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Tests">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="4.3.3" />
+    <PackageVersion Include="MSTest.TestFramework" Version="4.3.3" />
+  </ItemGroup>
+</Project>

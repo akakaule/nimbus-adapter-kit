@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <!-- The adapter runs as a worker (Azure Container App), not an Azure Function: only a worker can
+       pause its Service Bus receivers when the circuit breaker opens, and it owns the
+       deferred-replay loop as a hosted service. -->
+
+  <ItemGroup>
+    <PackageReference Include="Akaule.NimBus.SDK" />
+<!--#if (Inbox) -->
+    <PackageReference Include="Akaule.NimBus.Inbox.SqlServer" />
+<!--#endif -->
+    <PackageReference Include="Aspire.Azure.Messaging.ServiceBus" />
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
+    <ProjectReference Include="..\TemplateAdapter.ServiceDefaults\TemplateAdapter.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TemplateAdapter.Tests" />
+  </ItemGroup>
+
+</Project>

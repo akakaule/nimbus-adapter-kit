@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The message catalog: endpoints, events and the Platform that ties them together. It
+       references NimBus.Abstractions only, so other adapters and the provisioner can consume it.
+       If your organisation keeps the catalog in a shared platform package, replace this project
+       with a PackageReference to that package (see the nimbus-adapter skill, mode "new"). -->
+
+  <ItemGroup>
+    <PackageReference Include="Akaule.NimBus.Abstractions" />
+  </ItemGroup>
+
+</Project>
