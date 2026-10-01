@@ -1,0 +1,39 @@
+<Project>
+  <PropertyGroup Label="Compile settings">
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- XML docs are expected on public types, but a missing one should not fail a build.
+         CA1014 (CLSCompliant) does not apply to application assemblies. -->
+    <NoWarn>$(NoWarn);CS1591;CA1014</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Analyzers">
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <!-- Vulnerable packages (direct and transitive, CVSS 4.0+) raise NU1901-NU1904. Release turns them
+       into errors below, so CI fails on a known vulnerability without an extra pipeline step. -->
+  <PropertyGroup Label="NuGet audit">
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>moderate</NuGetAuditLevel>
+  </PropertyGroup>
+
+  <!-- Release (what CI builds) promotes compiler warnings to errors. Analyzer (CA) warnings stay
+       warnings so code-quality cleanup never blocks a deployment. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
+  </PropertyGroup>
+<!--#if (false) -->
+
+  <!-- Template source only (removed by dotnet new): switches every template option on, so the
+       template folder itself compiles and its tests run with all features. -->
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);Inbox</DefineConstants>
+  </PropertyGroup>
+<!--#endif -->
+</Project>

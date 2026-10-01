@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- A local stand-in for ExternalSystem (the API the adapter calls) and for the upstream system
+       (it publishes sample events). Shape its routes and error bodies like the real API: the
+       system packs in the nimbus-adapter skill list what to emulate per system. -->
+
+  <ItemGroup>
+    <PackageReference Include="Akaule.NimBus.SDK" />
+    <PackageReference Include="Aspire.Azure.Messaging.ServiceBus" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
+    <ProjectReference Include="..\TemplateAdapter.ServiceDefaults\TemplateAdapter.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

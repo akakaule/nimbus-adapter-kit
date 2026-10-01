@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "NimBus Adapter Kit",
+  "classifications": [
+    "NimBus",
+    "Integration",
+    "Worker",
+    "Azure Service Bus"
+  ],
+  "identity": "NimBus.AdapterKit.Adapter",
+  "groupIdentity": "NimBus.AdapterKit.Adapter",
+  "name": "NimBus adapter (Worker / Container App)",
+  "description": "A NimBus adapter that connects one external system (Dataverse, Business Central, F&O, ...) to a NimBus event bus: typed failures, retry rules, circuit breaker, inbox deduplication, tests, provisioner, Aspire AppHost, Bicep and an Azure DevOps pipeline.",
+  "shortName": "nimbus-adapter",
+  "sourceName": "TemplateAdapter",
+  "preferNameDirectory": true,
+  "guids": [
+    "5d7a3b1e-2c4f-4b8a-9e61-0f3c2a9d7e45"
+  ],
+  "tags": {
+    "language": "C#",
+    "type": "solution"
+  },
+  "symbols": {
+    "SystemName": {
+      "type": "parameter",
+      "datatype": "text",
+      "isRequired": true,
+      "description": "PascalCase name of the external system, for example BusinessCentral, Dataverse or FinanceOperations. It names the endpoint (BusinessCentralEndpoint), the client (IBusinessCentralClient) and the exception types.",
+      "replaces": "ExternalSystem",
+      "fileRename": "ExternalSystem"
+    },
+    "SystemNameLower": {
+      "type": "generated",
+      "generator": "casing",
+      "parameters": {
+        "source": "SystemName",
+        "toLower": true
+      },
+      "replaces": "externalsystem"
+    },
+    "SystemNameCamel": {
+      "type": "derived",
+      "valueSource": "SystemName",
+      "valueTransform": "firstLowerCase",
+      "replaces": "externalSystem"
+    },
+    "Inbox": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "true",
+      "description": "Deduplicate redeliveries with the NimBus SQL Server inbox (needs a SQL database for the integration platform)."
+    },
+    "NimBusVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "4.2.0",
+      "description": "The Akaule.NimBus.* package version. Match the NimBus version your Resolver and WebApp run.",
+      "replaces": "4.2.0",
+      "onlyIf": [
+        {
+          "after": "<NimBusVersion>"
+        },
+        {
+          "after": "nimbusVersion: '"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "exclude": [
+        ".template.config/**",
+        "**/[Bb]in/**",
+        "**/[Oo]bj/**",
+        "**/.vs/**",
+        "**/TestResults/**",
+        "**/*.user"
+      ]
+    }
+  ],
+  "SpecialCustomOperations": {
+    "**/*.bicep": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "//#if"
+            ],
+            "else": [
+              "//#else"
+            ],
+            "elseif": [
+              "//#elseif"
+            ],
+            "endif": [
+              "//#endif"
+            ],
+            "trim": true,
+            "wholeLine": true,
+            "evaluator": "C++"
+          }
+        }
+      ]
+    },
+    "**/*.bicepparam": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "//#if"
+            ],
+            "else": [
+              "//#else"
+            ],
+            "elseif": [
+              "//#elseif"
+            ],
+            "endif": [
+              "//#endif"
+            ],
+            "trim": true,
+            "wholeLine": true,
+            "evaluator": "C++"
+          }
+        }
+      ]
+    }
+  }
+}

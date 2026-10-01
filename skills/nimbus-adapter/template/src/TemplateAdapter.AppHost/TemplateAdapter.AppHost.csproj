@@ -1,0 +1,23 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.4">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsAspireHost>true</IsAspireHost>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <UserSecretsId>5d7a3b1e-2c4f-4b8a-9e61-0f3c2a9d7e45</UserSecretsId>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+<!--#if (Inbox) -->
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.SqlServer" />
+  </ItemGroup>
+<!--#endif -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\TemplateAdapter.Adapter\TemplateAdapter.Adapter.csproj" />
+    <ProjectReference Include="..\TemplateAdapter.Provisioner\TemplateAdapter.Provisioner.csproj" />
+    <ProjectReference Include="..\TemplateAdapter.Simulator\TemplateAdapter.Simulator.csproj" />
+  </ItemGroup>
+
+</Project>

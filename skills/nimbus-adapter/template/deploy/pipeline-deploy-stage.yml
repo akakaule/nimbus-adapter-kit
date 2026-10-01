@@ -1,0 +1,67 @@
+# One deployment stage: apply the Service Bus topology, then deploy the Container App.
+# Used three times by azure-pipelines.yml (dev, test, prod).
+
+parameters:
+  - name: environmentName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: dependsOn
+    type: string
+
+stages:
+  - stage: Deploy_${{ parameters.environmentName }}
+    displayName: Deploy to ${{ parameters.environmentName }}
+    dependsOn: ${{ parameters.dependsOn }}
+    condition: and(succeeded(), eq(variables.isMain, true))
+    jobs:
+      - deployment: Deploy
+        pool:
+          vmImage: ubuntu-latest
+        # Approvals and checks are configured on this environment in Azure DevOps.
+        environment: externalsystem-adapter-${{ parameters.environmentName }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: deploy
+                - download: current
+                  artifact: contracts
+
+                - task: UseDotNet@2
+                  displayName: Use the .NET 10 SDK (for the nb CLI)
+                  inputs:
+                    packageType: sdk
+                    version: 10.0.x
+
+                # Topology first: new subscriptions and rules must exist before the new code runs.
+                - task: AzureCLI@2
+                  displayName: Apply the Service Bus topology
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      $tools = "$(Agent.TempDirectory)/nb"
+                      dotnet tool install Akaule.NimBus.CommandLine --version $(nimbusVersion) --tool-path $tools
+                      & "$tools/nb" topology apply `
+                        --solution-id $(solutionId) `
+                        --environment ${{ parameters.environmentName }} `
+                        --resource-group ${{ parameters.resourceGroup }} `
+                        --assembly "$(Pipeline.Workspace)/contracts/TemplateAdapter.Contracts.dll"
+
+                - task: AzureCLI@2
+                  displayName: Deploy the Container App
+                  env:
+                    IMAGE_TAG: $(Build.BuildNumber)
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az deployment group create `
+                        --resource-group ${{ parameters.resourceGroup }} `
+                        --parameters "$(Pipeline.Workspace)/deploy/main.${{ parameters.environmentName }}.bicepparam"

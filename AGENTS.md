@@ -18,7 +18,12 @@ or as a Claude Code plugin.
   source or package before you write it into a pattern or snippet. CI greps for known-stale
   names.
 - **The template must compile in place and when instantiated.** Run `eng/instantiate-matrix.ps1`
-  before you push a template change. Release builds treat CS warnings as errors.
+  before you push a template change. Release builds treat CS warnings as errors. Template files
+  use template-engine conditionals (`#if (Inbox)`, `<!--#if -->`, `//#if` in Bicep). Bicep files
+  must stay LF-only (`.gitattributes`), because the engine's Bicep conditionals fail on CRLF.
+- **Snippets compile inside the template's adapter.** They are in namespace
+  `TemplateAdapter.Adapter.Clients` and use `ExternalSystem*` names. Run
+  `eng/verify-snippets.ps1`.
 - **Skill files must stay portable.**
   - Frontmatter is only `name` and `description`.
   - Use no tool names specific to one agent.
@@ -30,8 +35,15 @@ or as a Claude Code plugin.
 - `skills/nimbus-adapter/SKILL.md`: mode routing and the hard rules.
 - `skills/nimbus-adapter/references/`: `modes/`, `patterns/`, `systems/`, `checklists/`.
 - `skills/nimbus-adapter/template/`: the `dotnet new nimbus-adapter` template.
-- `tests/Kit.Snippets/`: compiles every system-pack snippet.
-- `eng/`: the build and verification scripts used by CI.
+- `eng/`: the verification scripts CI runs.
+  - `instantiate-matrix.ps1`: instantiates every option combination, then builds, tests and
+    checks the Bicep.
+  - `verify-snippets.ps1`: compiles each pack's snippets inside a copy of the template's adapter.
+  - `check-content.ps1`: catches stale API names, checks the skill frontmatter and resolves links.
+  - `check-anonymization.ps1`: scans for denylisted terms (the denylist comes from a CI secret or
+    a local file).
+- `.claude-plugin/`: the Claude Code plugin and marketplace manifests. Validate them with
+  `claude plugin validate .`.
 - `docs/plan/`: plans.
 
 ## Conventions

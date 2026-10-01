@@ -1,0 +1,104 @@
+# Build, test and deploy the adapter (Azure DevOps Pipelines).
+#
+# One-time setup:
+# - An Azure Resource Manager service connection per environment (workload identity federation),
+#   allowed to deploy to the environment's resource group and to push to the container registry.
+# - Pipeline environments externalsystem-adapter-dev / -test / -prod (Pipelines > Environments).
+#   Put approvals and checks on test and prod there; the deploy stages wait for them.
+# - Replace every <placeholder> below and in deploy/main.<environment>.bicepparam.
+#
+# Pull requests build and test only. main builds, tests, pushes an image, then deploys dev -> test -> prod.
+
+trigger:
+  branches:
+    include: [ main ]
+
+pr:
+  branches:
+    include: [ main ]
+
+variables:
+  buildConfiguration: Release
+  # Keep equal to <NimBusVersion> in Directory.Packages.props.
+  nimbusVersion: '4.2.0'
+  # The NimBus solution id (as used by `nb infra apply`), the registry and the image name.
+  solutionId: '<nimbus-solution-id>'
+  containerRegistryName: '<containerregistry>'
+  isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+
+stages:
+  - stage: Build
+    displayName: Build and test
+    jobs:
+      - job: Build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: UseDotNet@2
+            displayName: Use the .NET SDK from global.json
+            inputs:
+              packageType: sdk
+              useGlobalJson: true
+
+          # Release turns compiler warnings and known-vulnerable packages (NuGet audit) into errors.
+          - script: dotnet build TemplateAdapter.slnx -c $(buildConfiguration)
+            displayName: Build
+
+          # The gate: nothing is deployed unless every test passes.
+          - script: dotnet test TemplateAdapter.slnx -c $(buildConfiguration) --no-build --logger trx --results-directory $(Agent.TempDirectory)/TestResults
+            displayName: Test
+
+          - task: PublishTestResults@2
+            displayName: Publish test results
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: $(Agent.TempDirectory)/TestResults/*.trx
+              failTaskOnFailedTests: true
+
+          - script: az bicep build --file deploy/main.bicep --stdout > /dev/null
+            displayName: Validate Bicep
+
+          - publish: deploy
+            artifact: deploy
+            displayName: Publish the deployment files
+
+          # The catalog assembly, for `nb topology apply`. If your catalog lives in a shared platform
+          # package, that package's pipeline applies the topology and this artifact is not needed.
+          - publish: src/TemplateAdapter.Contracts/bin/$(buildConfiguration)/net10.0
+            artifact: contracts
+            displayName: Publish the catalog
+
+          - task: AzureCLI@2
+            displayName: Build and push the container image
+            condition: and(succeeded(), eq(variables.isMain, true))
+            inputs:
+              azureSubscription: '<service-connection-dev>'
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(containerRegistryName)
+                dotnet publish src/TemplateAdapter.Adapter -c $(buildConfiguration) -t:PublishContainer `
+                  -p:ContainerRegistry=$(containerRegistryName).azurecr.io `
+                  -p:ContainerImageTag=$(Build.BuildNumber)
+
+  - template: deploy/pipeline-deploy-stage.yml
+    parameters:
+      environmentName: dev
+      serviceConnection: '<service-connection-dev>'
+      resourceGroup: '<resource-group-dev>'
+      dependsOn: Build
+
+  - template: deploy/pipeline-deploy-stage.yml
+    parameters:
+      environmentName: test
+      serviceConnection: '<service-connection-test>'
+      resourceGroup: '<resource-group-test>'
+      dependsOn: Deploy_dev
+
+  - template: deploy/pipeline-deploy-stage.yml
+    parameters:
+      environmentName: prod
+      serviceConnection: '<service-connection-prod>'
+      resourceGroup: '<resource-group-prod>'
+      dependsOn: Deploy_test

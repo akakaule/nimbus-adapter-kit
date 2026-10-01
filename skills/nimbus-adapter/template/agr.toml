@@ -1,0 +1,16 @@
+# Agent skills for this repo. Install or update them with:  agr sync
+# (one-time: install uv, then `uv tool install agr`). Commit agr.lock; the skills folders are ignored.
+default_source = "github"
+tools = ["claude", "codex"]
+
+dependencies = [
+    # Patterns, the ExternalSystem knowledge pack and the flow / review checklists.
+    { handle = "akakaule/nimbus-adapter-kit/nimbus-adapter", type = "skill" },
+    # TDD and events documentation (docs/TDD.md, docs/events.md).
+    { handle = "akakaule/NimBus/adapter-docs", type = "skill" },
+]
+
+[[source]]
+name = "github"
+type = "git"
+url = "https://github.com/{owner}/{repo}.git"

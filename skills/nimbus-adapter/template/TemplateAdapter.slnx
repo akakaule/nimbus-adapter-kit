@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TemplateAdapter.Adapter/TemplateAdapter.Adapter.csproj" />
+    <Project Path="src/TemplateAdapter.AppHost/TemplateAdapter.AppHost.csproj" />
+    <Project Path="src/TemplateAdapter.Contracts/TemplateAdapter.Contracts.csproj" />
+    <Project Path="src/TemplateAdapter.Provisioner/TemplateAdapter.Provisioner.csproj" />
+    <Project Path="src/TemplateAdapter.ServiceDefaults/TemplateAdapter.ServiceDefaults.csproj" />
+    <Project Path="src/TemplateAdapter.Simulator/TemplateAdapter.Simulator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TemplateAdapter.Tests/TemplateAdapter.Tests.csproj" />
+  </Folder>
+</Solution>
