@@ -4,6 +4,13 @@
        pause its Service Bus receivers when the circuit breaker opens, and it owns the
        deferred-replay loop as a hosted service. -->
 
+  <PropertyGroup>
+    <!-- `dotnet publish -t:PublishContainer` builds the image without a Dockerfile. The repository
+         name must match the image the Bicep deploys ('{adapterName}-adapter'). -->
+    <EnableSdkContainerSupport>true</EnableSdkContainerSupport>
+    <ContainerRepository>externalsystem-adapter</ContainerRepository>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Akaule.NimBus.SDK" />
 <!--#if (Inbox) -->

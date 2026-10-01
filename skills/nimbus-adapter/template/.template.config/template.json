@@ -1,7 +1,12 @@
 {
   "$schema": "http://json.schemastore.org/template",
   "author": "NimBus Adapter Kit",
-  "classifications": [ "NimBus", "Integration", "Worker", "Azure Service Bus" ],
+  "classifications": [
+    "NimBus",
+    "Integration",
+    "Worker",
+    "Azure Service Bus"
+  ],
   "identity": "NimBus.AdapterKit.Adapter",
   "groupIdentity": "NimBus.AdapterKit.Adapter",
   "name": "NimBus adapter (Worker / Container App)",
@@ -9,6 +14,9 @@
   "shortName": "nimbus-adapter",
   "sourceName": "TemplateAdapter",
   "preferNameDirectory": true,
+  "guids": [
+    "5d7a3b1e-2c4f-4b8a-9e61-0f3c2a9d7e45"
+  ],
   "tags": {
     "language": "C#",
     "type": "solution"
@@ -52,6 +60,9 @@
       "onlyIf": [
         {
           "after": "<NimBusVersion>"
+        },
+        {
+          "after": "nimbusVersion: '"
         }
       ]
     }
@@ -67,5 +78,55 @@
         "**/*.user"
       ]
     }
-  ]
+  ],
+  "SpecialCustomOperations": {
+    "**/*.bicep": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "//#if"
+            ],
+            "else": [
+              "//#else"
+            ],
+            "elseif": [
+              "//#elseif"
+            ],
+            "endif": [
+              "//#endif"
+            ],
+            "trim": true,
+            "wholeLine": true,
+            "evaluator": "C++"
+          }
+        }
+      ]
+    },
+    "**/*.bicepparam": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "//#if"
+            ],
+            "else": [
+              "//#else"
+            ],
+            "elseif": [
+              "//#elseif"
+            ],
+            "endif": [
+              "//#endif"
+            ],
+            "trim": true,
+            "wholeLine": true,
+            "evaluator": "C++"
+          }
+        }
+      ]
+    }
+  }
 }

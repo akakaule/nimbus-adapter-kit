@@ -3,3 +3,6 @@
 *.csproj text eol=crlf
 *.ps1 text eol=crlf
 *.sh text eol=lf
+# The template engine's Bicep conditionals (//#if) only work with LF line endings.
+*.bicep text eol=lf
+*.bicepparam text eol=lf

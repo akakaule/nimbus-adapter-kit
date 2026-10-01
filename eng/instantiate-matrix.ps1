@@ -14,7 +14,9 @@
 [CmdletBinding()]
 param(
     [string] $OutputRoot = (Join-Path $PSScriptRoot '..' '.instantiate'),
-    [switch] $SkipTests
+    [switch] $SkipTests,
+    # Skip the Bicep compile (needs the Azure CLI with Bicep).
+    [switch] $SkipBicep
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +55,16 @@ try {
             $leftovers | ForEach-Object { Write-Host "   $($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
             throw "Template tokens survived instantiation in '$($case.Name)'."
         }
+        # Template conditionals must be resolved, never copied: a surviving marker means a file type
+        # the engine did not process (for example a Bicep file with CRLF line endings).
+        $markers = Get-ChildItem -LiteralPath $target -Recurse -File |
+            Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' } |
+            Select-String -Pattern '^\s*(//#|<!--#|#if \(|#endif\b|#else\b)' -CaseSensitive
+        if ($markers) {
+            $markers | ForEach-Object { Write-Host "   $($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
+            throw "Template conditional markers survived instantiation in '$($case.Name)'."
+        }
+
         $renamed = Get-ChildItem -LiteralPath $target -Recurse | Where-Object { $_.Name -cmatch $tokens }
         if ($renamed) {
             throw "Template tokens survived in file names in '$($case.Name)': $($renamed.Name -join ', ')"
@@ -62,6 +74,14 @@ try {
         dotnet build $solution.FullName -c Release --nologo -v quiet
         if (-not $SkipTests) {
             dotnet test $solution.FullName -c Release --no-build --nologo
+        }
+
+        # The generated Bicep and every parameter file must compile (conditionals included).
+        if (-not $SkipBicep) {
+            az bicep build --file (Join-Path $target 'deploy' 'main.bicep') --stdout | Out-Null
+            Get-ChildItem -LiteralPath (Join-Path $target 'deploy') -Filter '*.bicepparam' | ForEach-Object {
+                az bicep build-params --file $_.FullName --stdout | Out-Null
+            }
         }
     }
 }
