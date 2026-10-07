@@ -109,3 +109,8 @@ Options:
 
 - Versioning: tag `vX.Y.Z` when the skill or template semantics change. Consumers pin the version
   through `agr.lock`. See [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+[MIT](LICENSE). Adapters you generate from the template are your own code; the license covers the
+kit itself (skill, patterns, packs and template).
