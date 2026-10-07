@@ -11,7 +11,7 @@
       "name": "nimbus-adapter",
       "source": "./",
       "description": "Build, extend and review NimBus adapters (patterns, Dataverse/BC/F&O packs, checklists, dotnet new template).",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace TemplateAdapter.Adapter.Clients;
 
@@ -30,7 +31,27 @@ public sealed class ExternalSystemClient(HttpClient http) : IExternalSystemClien
             return null;
 
         await HttpFailure.ThrowOnFailureAsync(response, operation, ApiName, cancellationToken).ConfigureAwait(false);
-        return await response.Content.ReadFromJsonAsync<ExternalSystemAccount>(cancellationToken).ConfigureAwait(false);
+
+        // Only a 404 means "not found". A success with a body that is not an account (null, empty,
+        // a proxy's HTML page) must never read as "not found": the caller would create a duplicate.
+        ExternalSystemAccount? account;
+        try
+        {
+            account = await response.Content.ReadFromJsonAsync<ExternalSystemAccount>(cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException ex)
+        {
+            throw new ExternalSystemUnavailableException(
+                HttpFailure.DescribeFailure(response, operation, ApiName, errorCode: null) + " The response is not an account.", ex);
+        }
+
+        if (account is null || string.IsNullOrWhiteSpace(account.AccountKey))
+        {
+            throw new ExternalSystemUnavailableException(
+                HttpFailure.DescribeFailure(response, operation, ApiName, errorCode: null) + " The response is not an account.");
+        }
+
+        return account;
     }
 
     /// <inheritdoc />

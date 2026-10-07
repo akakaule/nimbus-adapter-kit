@@ -12,5 +12,6 @@ param externalSystemBaseUrl = '<https://externalsystem-test.example>'
 param externalSystemScope = ''
 param applicationInsightsConnectionString = ''
 //#if (Inbox)
-param integrationDatabaseConnectionString = az.getSecret('<subscription-id>', '<key-vault-resource-group>', '<key-vault-name>', 'integration-db-connection-string')
+param keyVaultName = '<key-vault-test>'
+param integrationDatabaseSecretName = 'integration-db-connection-string'
 //#endif

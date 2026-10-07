@@ -5,8 +5,9 @@ A read-only review. Do not edit, commit or comment on PRs unless the user asks.
 ## 1. Scope
 
 - **Whole adapter**: every item in [../checklists/review.md](../checklists/review.md).
-- **Branch or PR**: the diff against its base (`git diff $(git merge-base <base> HEAD)`), plus
-  every checklist item the diff touches. If the branch has a flow record or plan, also check that
+- **Branch or PR**: the diff against the point where the branch left its base. In PowerShell:
+  `git diff (git merge-base origin/main HEAD)` (use your base branch's name). Then review every
+  checklist item the diff touches. If the branch has a flow record or plan, also check that
   the code does what it says.
 - Name the adapter's NimBus version (`<NimBusVersion>`, or the package references). Some items
   depend on it.

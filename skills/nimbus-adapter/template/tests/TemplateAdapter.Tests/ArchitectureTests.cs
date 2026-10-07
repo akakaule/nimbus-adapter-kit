@@ -6,7 +6,11 @@ using Microsoft.Extensions.Http;
 using NimBus.SDK.EventHandlers;
 using TemplateAdapter.Adapter;
 using TemplateAdapter.Adapter.Clients;
-using TemplateAdapter.Contracts.Endpoints;
+#if (ContractsPackage)
+using CatalogPlatform = PLATFORM_TYPE;
+#else
+using CatalogPlatform = TemplateAdapter.Contracts.AdapterCatalog;
+#endif
 
 namespace TemplateAdapter.Tests;
 
@@ -28,6 +32,9 @@ public sealed class ArchitectureTests
 
         CollectionAssert.Contains(hostedServices, "NimBusReceiverHostedService");
         CollectionAssert.Contains(hostedServices, "DeferredMessageProcessorHostedService");
+#if (IngressEnabled)
+        CollectionAssert.Contains(hostedServices, "IngressWorker");
+#endif
     }
 
     [TestMethod]
@@ -43,7 +50,14 @@ public sealed class ArchitectureTests
             .Distinct()
             .Order(StringComparer.Ordinal)
             .ToArray();
-        var consumed = new ExternalSystemEndpoint().EventTypesConsumed.Select(t => t.Id).Order(StringComparer.Ordinal).ToArray();
+        var consumed = OwnEndpoint().EventTypesConsumed.Select(t => t.Id).Order(StringComparer.Ordinal).ToArray();
+#if (ContractsPackage)
+
+        // A fresh adapter on a shared catalog has no handlers yet. Until the first one exists, this
+        // test is inconclusive and lists what to build; from then on every consumed event needs one.
+        if (handled.Length == 0 && consumed.Length > 0)
+            Assert.Inconclusive("No handlers yet. Add one per consumed event: " + string.Join(", ", consumed));
+#endif
 
         CollectionAssert.AreEqual(consumed, handled);
     }
@@ -69,8 +83,15 @@ public sealed class ArchitectureTests
     public void TheEndpointName_IsTheCatalogEndpoint()
     {
         // The receiver listens on AdapterComposition.EndpointName; the provisioner creates the topic
-        // from the catalog endpoint's Id. They must be the same string.
-        Assert.AreEqual(AdapterComposition.EndpointName, new ExternalSystemEndpoint().Id);
+        // from the catalog endpoint's Id. The catalog must contain exactly that endpoint.
+        Assert.AreEqual(AdapterComposition.EndpointName, OwnEndpoint().Id);
+    }
+
+    private static NimBus.Core.Endpoints.IEndpoint OwnEndpoint()
+    {
+        var endpoint = new CatalogPlatform().Endpoints.SingleOrDefault(e => e.Id == AdapterComposition.EndpointName);
+        Assert.IsNotNull(endpoint, $"The catalog has no endpoint '{AdapterComposition.EndpointName}'.");
+        return endpoint;
     }
 
     private static IHost BuildHost()

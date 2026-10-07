@@ -12,7 +12,7 @@ flow live in [`docs/flows/`](docs/flows/), and the TDD and events catalog in [`d
 | Path | What |
 |---|---|
 | `src/TemplateAdapter.Contracts` | The catalog: endpoints, events, `AdapterCatalog` (NimBus.Abstractions only) |
-| `src/TemplateAdapter.Adapter` | The adapter: `AdapterComposition` (all wiring), `Clients/` (ExternalSystem API + failure types), `Handlers/`, `Mapping/`, `Resilience/` |
+| `src/TemplateAdapter.Adapter` | The adapter: `AdapterComposition` (all wiring), `Clients/` (ExternalSystem API + failure types), `Handlers/`, `Mapping/`, `Resilience/`, and `Ingress/` when generated with `--Ingress true` (change notifications from a queue, re-read and published) |
 | `src/TemplateAdapter.Simulator` | A local stand-in for the ExternalSystem API with fault injection, plus an upstream driver that publishes sample events |
 | `src/TemplateAdapter.Provisioner` | Applies the Service Bus topology from the catalog (local runs) |
 | `src/TemplateAdapter.AppHost` | Aspire: provisioner, simulator and adapter in one command |
@@ -51,6 +51,11 @@ dotnet test TemplateAdapter.slnx -c Release
    - `POST /emulator/faults` with `{"status":503,"durationSeconds":60}` simulates an update window.
      NimBus retries with backoff, and the circuit breaker pauses the receivers.
    - `POST /emulator/faults` with `{"status":429,"count":3,"retryAfterSeconds":2}` throttles three calls.
+   - If the adapter was generated with `--Ingress true` (system → bus):
+     `POST /emulator/accounts/ACC-2001/changed` with `{"accountKey":"ACC-2001","name":"Northwind Subsea"}`
+     changes the account as a user would and sends the change notification. The adapter re-reads the
+     account and publishes `ExternalSystemAccountUpdated`. The adapter's own writes send no
+     notification; that is the echo filter at the source, which the real system's trigger must do too.
 
 The NimBus Resolver and WebApp are not part of this stack. Use your dev environment's, or run NimBus
 from source, to see the audit trail and to resubmit or skip failed messages.
@@ -77,15 +82,24 @@ Use the `nimbus-adapter` agent skill (`flow` mode). Install it with AGR: `agr sy
 
 One-time setup:
 1. Fill in the `<placeholders>` in `azure-pipelines.yml` and `deploy/main.*.bicepparam`.
-2. Create the service connections and pipeline environments listed at the top of `azure-pipelines.yml`.
+2. Create the service connections and pipeline environments listed at the top of
+   `azure-pipelines.yml`. Each environment's service connection needs **Contributor** and
+   **Role Based Access Control Administrator** on its resource group, because the Bicep creates
+   the adapter's identity and its role assignments.
 3. After the first deployment, give the adapter's managed identity (output
    `identityPrincipalId`) access to ExternalSystem, for example as an application user. Then set
    `externalSystemScope`.
-4. Inbox: store the integration database connection string in Key Vault, under the name the
-   parameter file reads. The inbox creates its table on first use, so the database user needs
-   permission to create it once. Otherwise create the table up front and set `AutoCreateTable` to
-   false. Managed-identity SQL authentication needs the `Microsoft.Data.SqlClient.Extensions.Azure`
-   package with SqlClient 7.x; verify it before relying on it.
+4. Inbox:
+   - Store the integration database connection string as a secret in a Key Vault in the same
+     resource group. The vault must use the Azure RBAC permission model.
+   - Name the secret as `integrationDatabaseSecretName` says (default
+     `integration-db-connection-string`).
+   - The Bicep gives the adapter's identity **Key Vault Secrets User** on the vault. The Container
+     App reads the secret at runtime, so the pipeline never handles it.
+   - The inbox creates its table on first use, so the database user needs permission to create it
+     once. Otherwise create the table up front and set `AutoCreateTable` to false.
+   - Managed-identity SQL authentication needs the `Microsoft.Data.SqlClient.Extensions.Azure`
+     package with SqlClient 7.x. Verify it before relying on it.
 
 ## Operate
 

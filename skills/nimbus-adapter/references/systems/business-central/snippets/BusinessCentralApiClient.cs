@@ -23,8 +23,13 @@ namespace TemplateAdapter.Adapter.Clients;
 /// over the Customer table that exposes an external-id field (added by a table extension), because
 /// the standard API v2.0 customer has no field for the upstream id and no <c>systemModifiedBy</c>.
 /// <list type="bullet">
-///   <item>Read: <c>GET {CustomersRoute}?$filter=externalId eq '...'</c>. Zero rows is "not found";
-///   any non-success status throws (a 404 here means a wrong route or company, never "no customer").</item>
+///   <item>Read: <c>GET {CustomersRoute}?$filter=externalId eq '...'</c>. Only a well-formed, empty
+///   <c>value</c> array is "not found". Any non-success status throws (a 404 here means a wrong route
+///   or company, never "no customer"), and so does a 200 without a valid <c>value</c> array: read as
+///   "not found", either would POST a duplicate.</item>
+///   <item><see cref="GetAccountAsync"/> returns the owned fields in exactly the shape
+///   <c>AccountMapper.ToExternalSystem</c> produces, because the template's handler skips the upsert
+///   when the two are equal.</item>
 ///   <item>Create: <c>POST {CustomersRoute}</c>.</item>
 ///   <item>Update: <c>PATCH {CustomersRoute}({id})</c> with <c>If-Match</c> set to the row's
 ///   <c>@odata.etag</c>, sending only the fields that changed. An unchanged record is not written
@@ -127,8 +132,11 @@ public sealed class BusinessCentralApiClient(HttpClient http) : IExternalSystemC
     }
 
     /// <summary>
-    /// Finds the customer by external id. Returns <c>null</c> only for an empty result; two or more
-    /// rows is a data problem (the field cannot be made unique from a table extension) and throws.
+    /// Finds the customer by external id. Returns <c>null</c> only for a well-formed, empty
+    /// <c>value</c> array. A 200 that is not that collection (<c>{}</c>, <c>null</c>, a missing
+    /// <c>value</c>, a row without an <c>id</c>, an HTML page) throws Unavailable: BC cannot make the
+    /// external id unique, so reading it as "not found" would POST a duplicate. Two or more rows is a
+    /// data problem and throws Rejected.
     /// </summary>
     private async Task<BusinessCentralCustomer?> FindByExternalIdAsync(string externalId, string operation, CancellationToken cancellationToken)
     {
@@ -139,8 +147,20 @@ public sealed class BusinessCentralApiClient(HttpClient http) : IExternalSystemC
             () => http.GetAsync(uri, cancellationToken), operation, ApiName, cancellationToken).ConfigureAwait(false);
         await HttpFailure.ThrowOnFailureAsync(response, operation, ApiName, cancellationToken).ConfigureAwait(false);
 
-        var page = await response.Content.ReadFromJsonAsync<BusinessCentralPage<BusinessCentralCustomer>>(JsonOptions, cancellationToken).ConfigureAwait(false);
-        var matches = page?.Value ?? [];
+        BusinessCentralPage<BusinessCentralCustomer?>? page;
+        try
+        {
+            page = await response.Content.ReadFromJsonAsync<BusinessCentralPage<BusinessCentralCustomer?>>(JsonOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException)
+        {
+            throw NotACollection(response, operation);
+        }
+
+        if (page?.Value is not { } rows || rows.Any(row => row is null || row.Id == Guid.Empty))
+            throw NotACollection(response, operation);
+
+        var matches = rows.OfType<BusinessCentralCustomer>().ToList();
 
         return matches.Count switch
         {
@@ -173,17 +193,19 @@ public sealed class BusinessCentralApiClient(HttpClient http) : IExternalSystemC
     }
 
     /// <summary>
-    /// The fields to PATCH: only those that differ. BC returns empty text fields as <c>""</c>, so
-    /// null and empty compare equal, and clearing a field sends <c>""</c>.
+    /// The fields to PATCH: only those that differ, compared in the mapper's shape (the same
+    /// comparison the handler makes). BC returns empty text fields as <c>""</c>, so null and empty
+    /// compare equal, and clearing a field sends <c>""</c>.
     /// </summary>
     private static Dictionary<string, string> ChangedFields(BusinessCentralCustomer existing, ExternalSystemAccount desired)
     {
+        var current = ToAccount(existing, desired.AccountKey);
         var changes = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        AddIfChanged(changes, "displayName", existing.DisplayName, desired.Name);
-        AddIfChanged(changes, "country", existing.Country, desired.CountryCode);
-        AddIfChanged(changes, "email", existing.Email, desired.Email);
-        AddIfChanged(changes, "parentExternalId", existing.ParentExternalId, desired.ParentAccountKey);
+        AddIfChanged(changes, "displayName", current.Name, desired.Name);
+        AddIfChanged(changes, "country", current.CountryCode, desired.CountryCode);
+        AddIfChanged(changes, "email", current.Email, desired.Email);
+        AddIfChanged(changes, "parentExternalId", current.ParentAccountKey, desired.ParentAccountKey);
 
         return changes;
     }
@@ -201,13 +223,29 @@ public sealed class BusinessCentralApiClient(HttpClient http) : IExternalSystemC
     private static bool IsStaleRead(HttpStatusCode status) =>
         status is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict or HttpStatusCode.NotFound;
 
-    private static ExternalSystemAccount ToAccount(BusinessCentralCustomer customer, string requestedKey) =>
+    /// <summary>
+    /// The customer in the shape <c>AccountMapper.ToExternalSystem</c> produces, normalized the same
+    /// way: name trimmed, country trimmed and upper-case, e-mail trimmed, blanks as null, the parent
+    /// from <c>parentExternalId</c>. The handler skips the write when this equals the mapped record,
+    /// so change the two together. The key is the one looked up (the filter matched it), so a BC
+    /// collation that ignores case cannot make an unchanged record look changed.
+    /// </summary>
+    private static ExternalSystemAccount ToAccount(BusinessCentralCustomer customer, string accountKey) =>
         new(
-            customer.ExternalId is { Length: > 0 } key ? key : requestedKey,
-            customer.DisplayName ?? string.Empty,
-            NullIfEmpty(customer.Country),
-            NullIfEmpty(customer.Email),
-            NullIfEmpty(customer.ParentExternalId));
+            accountKey,
+            customer.DisplayName?.Trim() ?? string.Empty,
+            Normalized(customer.Country)?.ToUpperInvariant(),
+            Normalized(customer.Email),
+            string.IsNullOrWhiteSpace(customer.ParentExternalId) ? null : customer.ParentExternalId);
+
+    /// <summary>
+    /// A 200 that is not the expected collection. Unavailable, not "not found": it is usually a proxy,
+    /// gateway or maintenance page, and a later attempt reads the real answer. The text names the
+    /// request and status only, never the body (NimBus stores the message verbatim).
+    /// </summary>
+    private static ExternalSystemUnavailableException NotACollection(HttpResponseMessage response, string operation) =>
+        new(HttpFailure.DescribeFailure(response, operation, ApiName, errorCode: null)
+            + " The response is not the OData collection the adapter expects, so it is not read as \"not found\".");
 
     private static Uri CustomerUri(Guid id) => new($"{CustomersRoute}({id:D})", UriKind.Relative);
 
@@ -215,6 +253,8 @@ public sealed class BusinessCentralApiClient(HttpClient http) : IExternalSystemC
     private static string EscapeODataString(string value) => value.Replace("'", "''", StringComparison.Ordinal);
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
+
+    private static string? Normalized(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 /// <summary>An OData collection response: <c>{"value": [...]}</c>.</summary>

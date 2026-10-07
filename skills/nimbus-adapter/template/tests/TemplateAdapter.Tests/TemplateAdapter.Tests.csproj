@@ -17,7 +17,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TemplateAdapter.Adapter\TemplateAdapter.Adapter.csproj" />
+<!--#if (ContractsPackage)
+    <PackageReference Include="CONTRACTS_PACKAGE_ID" />
+#else -->
     <ProjectReference Include="..\..\src\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
+<!--#endif -->
     <ProjectReference Include="..\..\src\TemplateAdapter.Simulator\TemplateAdapter.Simulator.csproj" />
   </ItemGroup>
 

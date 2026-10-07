@@ -23,8 +23,13 @@ namespace TemplateAdapter.Adapter.Clients;
 /// to the entity, because the customer account number comes from an F&amp;O number sequence.
 /// <list type="bullet">
 ///   <item>Read: <c>GET CustomersV3?$filter={CorrelationField} eq '...' and dataAreaId eq '...'&amp;cross-company=true</c>.
-///   Zero rows is "not found". Any failure throws: a failed lookup is never "not found", because the
-///   create that would follow is how duplicates are made.</item>
+///   Only a well-formed, empty <c>value</c> array is "not found". Any failure throws, and so does a 200
+///   that is not that collection (Unavailable): a failed or unreadable lookup is never "not found",
+///   because the create that would follow is how duplicates are made.</item>
+///   <item><see cref="GetAccountAsync"/> returns the fields in the shape <c>AccountMapper.ToExternalSystem</c>
+///   produces, for the template handler's no-op check. The parent is not written and the country is
+///   read only when <see cref="CountryField"/> is set, so for those fields it returns null; see the
+///   method.</item>
 ///   <item>Create: <c>POST CustomersV3?cross-company=true</c> with the company, the correlation field
 ///   and the defaults a new customer needs. F&amp;O assigns the customer account.</item>
 ///   <item>Update: <c>PATCH CustomersV3(dataAreaId='...',CustomerAccount='...')?cross-company=true</c>
@@ -38,7 +43,8 @@ namespace TemplateAdapter.Adapter.Clients;
 /// Failures go through <see cref="HttpFailure"/> (429 Throttled, 408/502/503/504 and timeouts
 /// Unavailable, other 4xx Rejected), with one F&amp;O addition: a 500 whose body names
 /// <see cref="WriteFailureType"/> is a validation failure and is Rejected, not Unavailable (see the
-/// README; the status code is unverified). There is no retry handler here: NimBus retries failed
+/// README; the status code is unverified). No failure text contains F&amp;O's response: NimBus stores
+/// the text verbatim, and the Infolog can echo field values. There is no retry handler here: NimBus retries failed
 /// messages as new, audited attempts. This client never returns
 /// <see cref="UpsertResult.OwnedByExternalSystem"/>: F&amp;O has no ownership status code, so decide
 /// ownership from your data before calling it.
@@ -91,16 +97,41 @@ public sealed class FinanceOperationsODataClient(HttpClient http) : IExternalSys
     /// <summary>The inner error type F&amp;O reports when entity validation rejects a write.</summary>
     public const string WriteFailureType = "AxODataWriteException";
 
-    private const string ApiName = "F&O OData";
-    private const int MaxBodyChars = 500;
+    /// <summary>
+    /// The error code the client reports for a <see cref="WriteFailureType"/> failure, because
+    /// F&amp;O's own <c>error.code</c> is usually empty. A stable code of the adapter's own lets
+    /// operators and alerts group these failures.
+    /// </summary>
+    public const string WriteFailureCode = "AxODataWriteFailed";
 
-    /// <inheritdoc />
+    private const string ApiName = "F&O OData";
+
+    /// <summary>
+    /// Reads the customer by its correlation field. Returns <c>null</c> only when F&amp;O answers with
+    /// an empty <c>value</c> array.
+    /// <para>
+    /// The template's handler compares the result with the mapped record and skips the upsert when
+    /// they are equal, so the fields come back normalized as <c>AccountMapper.ToExternalSystem</c>
+    /// does it: name trimmed, country trimmed and upper-case, e-mail trimmed, blanks as null.
+    /// Some events can't match: the client doesn't write a parent (see <see cref="UpsertAccountAsync"/>)
+    /// and selects the country only when <see cref="CountryField"/> is set (both come back null), and
+    /// it never clears an e-mail that the event leaves empty. For an event with a parent, a country the
+    /// client does not write, or no e-mail where F&amp;O has one, the handler's check misses, and
+    /// <see cref="UpsertAccountAsync"/>'s own compare is what skips the PATCH, after a second GET.
+    /// Drop such fields from your record and mapper, or read them here, to save that GET.
+    /// </para>
+    /// </summary>
     public async Task<ExternalSystemAccount?> GetAccountAsync(string accountKey, CancellationToken cancellationToken)
     {
         var row = await FindAsync(accountKey, cancellationToken).ConfigureAwait(false);
         return row is null
             ? null
-            : new ExternalSystemAccount(accountKey, row.Name ?? string.Empty, row.Country, row.Email, ParentAccountKey: null);
+            : new ExternalSystemAccount(
+                AccountKey: accountKey,
+                Name: row.Name?.Trim() ?? string.Empty,
+                CountryCode: Normalized(row.Country)?.ToUpperInvariant(),
+                Email: Normalized(row.Email),
+                ParentAccountKey: null);
     }
 
     /// <inheritdoc />
@@ -146,17 +177,23 @@ public sealed class FinanceOperationsODataClient(HttpClient http) : IExternalSys
         // No 404 -> null here: a 404 on a collection means a wrong entity set or URL, not "no customer".
         await ThrowOnFailureAsync(response, operation, cancellationToken).ConfigureAwait(false);
 
+        // Only a well-formed collection counts. {}, null, an HTML page or a row without its key is an
+        // unreadable answer, and reading it as "not found" would POST a duplicate.
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             using var document = JsonDocument.Parse(body);
-            if (!document.RootElement.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array)
-                throw NotACollection(response, operation, body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("value", out var rows)
+                || rows.ValueKind != JsonValueKind.Array)
+            {
+                throw NotACollection(response, operation);
+            }
 
             return rows.GetArrayLength() switch
             {
                 0 => null,
-                1 => ReadRow(rows[0], response, operation, body),
+                1 => ReadRow(rows[0], response, operation),
                 var count => throw new ExternalSystemRejectedException(
                     $"{operation} failed: {count} customers in company '{Company}' carry this {CorrelationField}. " +
                     "It must be unique: merge or correct the duplicates in F&O, then resubmit this message.",
@@ -166,7 +203,7 @@ public sealed class FinanceOperationsODataClient(HttpClient http) : IExternalSys
         }
         catch (JsonException)
         {
-            throw NotACollection(response, operation, body);
+            throw NotACollection(response, operation);
         }
     }
 
@@ -221,27 +258,43 @@ public sealed class FinanceOperationsODataClient(HttpClient http) : IExternalSys
         || (!string.IsNullOrEmpty(CountryField) && account.CountryCode is not null
             && !string.Equals(existing.Country, account.CountryCode, StringComparison.OrdinalIgnoreCase));
 
-    private static CustomerRow ReadRow(JsonElement row, HttpResponseMessage response, string operation, string body)
+    private static CustomerRow ReadRow(JsonElement row, HttpResponseMessage response, string operation)
     {
-        var customerAccount = ReadString(row, KeyField);
+        if (row.ValueKind != JsonValueKind.Object)
+            throw NotACollection(response, operation);
+
+        var customerAccount = ReadString(row, KeyField, response, operation);
         if (string.IsNullOrEmpty(customerAccount))
-            throw NotACollection(response, operation, body);
+            throw NotACollection(response, operation);
 
         return new CustomerRow(
             customerAccount,
-            ReadString(row, NameField),
-            ReadString(row, EmailField),
-            string.IsNullOrEmpty(CountryField) ? null : ReadString(row, CountryField));
+            ReadString(row, NameField, response, operation),
+            ReadString(row, EmailField, response, operation),
+            string.IsNullOrEmpty(CountryField) ? null : ReadString(row, CountryField, response, operation));
     }
 
-    private static string? ReadString(JsonElement row, string field) =>
-        row.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    /// <summary>A string field, or null when it is missing or null. Any other JSON type is an unreadable row.</summary>
+    private static string? ReadString(JsonElement row, string field, HttpResponseMessage response, string operation)
+    {
+        if (!row.TryGetProperty(field, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : throw NotACollection(response, operation);
+    }
 
     /// <summary>
     /// <see cref="HttpFailure.ThrowOnFailureAsync"/> plus one F&amp;O rule: a 500 whose inner error
     /// type is <see cref="WriteFailureType"/> ("Write failed for table row ... Infolog: ...") is a
     /// data problem. Treated as Unavailable it would be retried for nothing and count towards the
     /// circuit breaker. The status code F&amp;O uses for it is unverified; record one in a sandbox.
+    /// <para>
+    /// The body decides the class but stays out of the failure text: NimBus stores that text verbatim,
+    /// and the Infolog in <c>error.innererror.message</c> can echo field values.
+    /// The text names the record (in <paramref name="operation"/>), the request, the status and
+    /// <see cref="WriteFailureCode"/>; the operator finds F&amp;O's reason by repeating the change on
+    /// that record in F&amp;O.
+    /// </para>
     /// </summary>
     private static async Task ThrowOnFailureAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
     {
@@ -253,11 +306,10 @@ public sealed class FinanceOperationsODataClient(HttpClient http) : IExternalSys
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (body.Contains(WriteFailureType, StringComparison.Ordinal))
             {
-                var detail = InnerErrorMessage(body) ?? body;
                 throw new ExternalSystemRejectedException(
-                    HttpFailure.Describe(response, operation, ApiName, Truncate(detail)),
+                    HttpFailure.DescribeFailure(response, operation, ApiName, HttpFailure.SanitizeErrorCode(WriteFailureCode)),
                     (int)response.StatusCode,
-                    WriteFailureType);
+                    WriteFailureCode);
             }
         }
 
@@ -265,37 +317,14 @@ public sealed class FinanceOperationsODataClient(HttpClient http) : IExternalSys
     }
 
     /// <summary>
-    /// <c>error.innererror.message</c>: F&amp;O's outer <c>error.message</c> is a generic text, the
-    /// inner one carries the Infolog an operator can act on.
+    /// A 200 that is not the expected collection. Unavailable, not "not found": it is usually a proxy,
+    /// gateway or maintenance page, and a later attempt reads the real answer. No body in the text.
     /// </summary>
-    private static string? InnerErrorMessage(string body)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(body);
-            return document.RootElement.ValueKind == JsonValueKind.Object
-                && document.RootElement.TryGetProperty("error", out var error)
-                && error.ValueKind == JsonValueKind.Object
-                && error.TryGetProperty("innererror", out var inner)
-                && inner.ValueKind == JsonValueKind.Object
-                && inner.TryGetProperty("message", out var message)
-                && message.ValueKind == JsonValueKind.String
-                    ? message.GetString()
-                    : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
+    private static ExternalSystemUnavailableException NotACollection(HttpResponseMessage response, string operation) =>
+        new(HttpFailure.DescribeFailure(response, operation, ApiName, errorCode: null)
+            + " The response is not the OData collection the adapter expects, so it is not read as \"not found\".");
 
-    private static ExternalSystemRejectedException NotACollection(HttpResponseMessage response, string operation, string body) =>
-        new(
-            HttpFailure.Describe(response, operation, ApiName, Truncate(body)) + " The response is not the OData collection the adapter expects.",
-            (int)response.StatusCode,
-            errorCode: null);
-
-    private static string Truncate(string text) => text.Length > MaxBodyChars ? text[..MaxBodyChars] + "…" : text;
+    private static string? Normalized(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>An OData string literal for <c>$filter</c>: single quotes are doubled. The whole filter is URL-encoded afterwards.</summary>
     private static string Literal(string value) => "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";

@@ -59,7 +59,12 @@ deletes. The record must exist before code changes.
 
 ## 4. Inbound (system → bus)
 
-Follow the system pack's ranked change-detection options and:
+If the adapter was generated with `--Ingress true`, extend its `Ingress/` folder:
+- `IngressProcessor` gains the entity;
+- the mapper gains a `To<Event>` method;
+- `IngressProcessorTests` gains the cases.
+
+Otherwise follow the system pack's ranked change-detection options and:
 - `patterns/04-thin-notification-reread.md`;
 - `patterns/05-deterministic-message-id-and-inbox.md`;
 - `patterns/06-reliable-publish.md`;

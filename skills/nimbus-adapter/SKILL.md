@@ -34,10 +34,15 @@ else; it says which other references to load.
 | Things that broke production adapters | [references/patterns/anti-patterns.md](references/patterns/anti-patterns.md) |
 | The scaffold | [template/](template/) (`dotnet new nimbus-adapter`; see its README.md) |
 
-Load only what the current step needs. Every fact in the system packs is tagged **[proven in
-production]**, **[proven in the NimBus sample]** or **[Microsoft docs, verify]**. Treat
-"verify" facts as claims: check them against the customer's environment or current Microsoft
-documentation before you depend on them, and say so in your summary.
+Load only what the current step needs. Every fact in the system packs is tagged:
+- **[proven in production]**: seen in a production adapter's code, docs or fix history. It was not
+  re-observed at runtime.
+- **[proven in the NimBus sample]**: shown against a simulator only.
+- **[Microsoft docs, verify]**: from documentation.
+- **[unverified]**: neither documented nor observed.
+
+Treat everything except the first tag as a claim. Check it against the customer's environment or
+current Microsoft documentation before you depend on it, and say so in your summary.
 
 ## Hard rules (every mode)
 
@@ -45,10 +50,16 @@ documentation before you depend on them, and say so in your summary.
    `docs/flows/<flow>.md`: session key, MessageId, idempotency key, missing-reference policy,
    ownership, echo identity and failure mapping. Ask the user for what you cannot infer; never
    guess business rules (who masters which field, what a missing parent means).
-2. **Failures are classified in the client.** It throws exactly one of Throttled, Unavailable or
-   Rejected, with a message an operator can act on. Handlers never catch-and-swallow.
+2. **Failures are classified in the client.**
+   - It throws exactly one of Throttled, Unavailable or Rejected, with a message an operator can
+     act on.
+   - The message never contains a request or response body, because NimBus stores it unmasked in
+     the audit trail.
+   - A malformed success is Unavailable, never "not found".
+   - Handlers never catch-and-swallow.
 3. **Retries belong to NimBus.**
-   - Configure them with `ConfigureRetryPolicies` exception rules keyed on exception type names.
+   - Configure them with `ConfigureRetryPolicies` exception rules keyed on the exception's full
+     type name plus `:`.
    - Never add HttpClient resilience handlers, Polly or retry loops, and never key a rule on a
      status code or message text.
    - Keep any SDK-internal retry inside the Service Bus lock.

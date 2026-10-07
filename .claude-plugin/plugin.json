@@ -1,6 +1,6 @@
 {
   "name": "nimbus-adapter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Build, extend and review NimBus adapters for Dataverse / Dynamics 365 CE, Business Central and Dynamics 365 F&O: a pattern catalog from production adapters, system knowledge packs, checklists and a dotnet new template.",
   "author": {
     "name": "Alvin Kaule"

@@ -8,7 +8,8 @@ below.
 
 Tags follow the [README](README.md):
 
-- **[proven in production]**: observed in a production Dataverse CE adapter.
+- **[proven in production]**: seen in a production adapter's code, documentation or fix history;
+  the kit authors did not re-observe it at runtime.
 - **[Microsoft docs, verify]**: from learn.microsoft.com.
 
 Where Microsoft documents only the status or only the message, the simulator's choice is marked

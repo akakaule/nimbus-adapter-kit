@@ -111,7 +111,7 @@ returns `{"@odata.context":"…/$metadata#Edm.String","value":…}` **[Microsoft
 | Route | Effect |
 |---|---|
 | `POST /emulator/throttle` `{ "count": 3, "retryAfterSeconds": 2, "scope": "odata" \| "batch" \| "dmf" }` | The next `count` matching calls get 429 + `Retry-After` and change nothing |
-| `POST /emulator/odata/outcome` `{ "operation": "create" \| "update" \| "read", "status": 500, "body": "writeValidation" \| "generic" \| "none", "count": 1 }` | Fails the next matching calls. `"read"` with 503 or 401 drives the "failed lookup must not create" test |
+| `POST /emulator/odata/outcome` `{ "operation": "create" \| "update" \| "read", "status": 500, "body": "writeValidation" \| "generic" \| "notACollection" \| "none", "count": 1 }` | Fails the next matching calls. `"read"` with 503 or 401, or with 200 and `"notACollection"` (answers `{}`), drives the "failed lookup must not create" test |
 | `POST /emulator/odata/commit-then-fail` `{ "count": 1 }` | **Commits** the next create, then answers 500, or drops the connection. This is the case where a retried POST would duplicate the record: the adapter's lookup-before-create must find the record on the next attempt |
 | `PUT /emulator/companies/default` `{ "company": "dat" }` | Sets the simulated caller's default company |
 | `PUT /emulator/auth` `{ "requireAuth": true, "unregisteredApp": false }` | The auth switches |
@@ -146,13 +146,15 @@ trigger output **[proven in production]**:
 
 ## Tests the simulator must make possible
 
-1. A failed lookup (503, 401, 429) never leads to a POST. Check `GET /emulator/requests`.
+1. A failed lookup (503, 401, 429), or a 200 that isn't the collection, never leads to a POST. Check
+   `GET /emulator/requests`.
 2. Without `cross-company=true`, a record in another company isn't found. The snippet always sends
    it.
 3. A commit-then-fail create, retried, ends with exactly one record.
 4. A PATCH body never contains `dataAreaId`, the key field or the correlation field. An unchanged
    record is not PATCHed.
 5. A 500 `AxODataWriteException` is Rejected, not Unavailable, and doesn't trip the circuit breaker.
+   Its failure text doesn't contain the Infolog (the error body's customer group `'99'` is absent).
 6. A 429 is Throttled and changes nothing.
 7. DMF covers every row of the settlement table in the README, including
    `PartiallySucceededNoErrors`, unattributed errors, malformed error JSON and `NeverFinishes`.

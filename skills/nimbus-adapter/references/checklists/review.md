@@ -50,9 +50,13 @@ brackets; adjust it to the actual impact.
     exceed the Service Bus lock.
 
   See `patterns/21`.
-- [ ] **[Medium]** **Failure messages are actionable but safe:** operation, method, path, status
-  and a truncated response body. Never the request body or secrets. See `patterns/20` and
-  `patterns/25`.
+- [ ] **[High]** **Failure messages are actionable but safe:** operation, method, path (no query
+  string), status and a sanitized error code. Never a request or response body, never secrets.
+  NimBus stores the text unmasked in the audit trail. See `patterns/20` and `patterns/25`.
+- [ ] **[Critical]** **A malformed success is never "not found".** A `200` with `null`, `{}` or no
+  `value` collection must throw (Unavailable), not lead to a create. See `patterns/20`.
+- [ ] **[High]** **Retry rules are keyed on full type names plus a colon**, and no untrusted text can
+  name a retried exception type. See `patterns/21`.
 - [ ] **[High]** **The client is a singleton or comes from the factory, with async APIs only.**
   - Not built per message, and no sync-over-async (`.Result`, `.Wait()`).
   - Dataverse: one `ServiceClient`, async methods. See the system pack.

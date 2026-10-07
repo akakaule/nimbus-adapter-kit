@@ -7,7 +7,9 @@ not cover on-premises F&O.
 Last verified: 2026-10-01
 
 **Tags.** Every statement about F&O, Dataverse or Logic Apps carries one of these tags:
-- **[proven in production]**: observed in a production F&O adapter or its Logic Apps.
+- **[proven in production]**: seen in a production adapter's code, documentation or fix history;
+  the kit authors did not re-observe it at runtime. The sources are two production F&O adapters and
+  the Logic Apps of one of them (see [Sources](#sources)).
 - **[Microsoft docs, verify]**: taken from learn.microsoft.com (see [Sources](#sources)). Check it
   against your environment's version.
 - **[unverified]**: neither observed in production nor documented on Learn. Test it in a sandbox
@@ -25,9 +27,9 @@ Statements about NimBus behaviour come from the NimBus 4.2.0 source.
 | Company | Put `dataAreaId` in every key, and `cross-company=true` on every call **[proven in production]** |
 | Idempotent create | Use a correlation field that holds the upstream id. Look it up before every create, and never read a failed lookup as "not found" **[proven in production]** |
 | Throttling | 429 with `Retry-After`, on OData and custom services only. DIXF and recurring integrations are exempt **[Microsoft docs, verify]** |
-| Change detection | Best: business events, which are thin, so re-read the record. Next: virtual-table data events through a Logic App **[proven in production]** |
+| Change detection | Best: business events, which are thin **[Microsoft docs, verify]**, so re-read the record (a production Logic App did **[proven in production]**). Next: virtual-table data events through a Logic App **[proven in production]** |
 | Ordering of F&O events | Not guaranteed **[Microsoft docs, verify]**. Re-read current state and session on the record key |
-| Echo identity | A dedicated Entra app, mapped to a dedicated F&O user. Skip no-op writes (see [Echo-loop prevention](#echo-loop-prevention)) |
+| Echo identity | A dedicated Entra app, mapped to a dedicated F&O user, so every adapter write runs as that user **[Microsoft docs, verify]**. Skip no-op writes (see [Echo-loop prevention](#echo-loop-prevention)) |
 | Local testing | A simulator of the OData subset and the DMF actions ([simulator-routes.md](simulator-routes.md)) |
 
 ## Authentication
@@ -216,8 +218,17 @@ deterministic `MessageId`, so the inbox drops redeliveries.
   client defaults **[Microsoft docs, verify]**. A production adapter used it on every save
   **[proven in production]**.
 - Don't write a record that hasn't changed. Every update fires data events and virtual-table
-  triggers, even when nothing changed **[Microsoft docs, verify]**. The snippet compares before it
-  PATCHes.
+  triggers, even when nothing changed **[Microsoft docs, verify]**.
+  - The template's `UpstreamAccountUpdatedHandler` compares first: it calls `GetAccountAsync` and
+    skips the upsert when the result equals `AccountMapper.ToExternalSystem(message)`. The snippet's
+    `GetAccountAsync` returns the mapper's shape: the name trimmed, the country trimmed and
+    upper-cased, the e-mail trimmed, blanks as null.
+  - Some fields can't match. The snippet doesn't write a parent (the nearest CustomersV3 concept is
+    the invoice account; see the snippet), and it selects the country only when `CountryField` is
+    set, so both read back as null. It also never clears an e-mail the event leaves empty. For such
+    an event the handler's check misses, and the snippet's own compare before the PATCH is what
+    skips the write, after a second GET.
+  - To save that GET, keep your record and mapper to the fields the client writes and reads back.
 
 ### Lookup before create (correlation field)
 
@@ -238,6 +249,9 @@ deterministic `MessageId`, so the inbox drops redeliveries.
     created a duplicate, and hid the real error.
   - The fix: only zero rows in a successful response means "not found". Every other outcome throws a
     classified exception.
+  - That includes a `200` that isn't the collection (`{}`, `null`, an HTML page, a row without its
+    key field): the snippet throws `ExternalSystemUnavailableException`, so NimBus retries it, and
+    never reads it as "not found".
   - Two or more rows means the correlation field isn't unique. That is a data problem, so reject it.
 - Validate GUID correlation values before you put them in a filter. A production adapter wrote GUID
   values unquoted (`<Field> eq 3f2b…`) **[proven in production]**. Quote string literals and double
@@ -359,10 +373,18 @@ execution id, and the sender waited out the full handoff timeout.
 | `NotRun` / `Executing` | Not terminal: keep polling |
 | `Canceled` / `Unknown` | Fail every row ("import did not complete") |
 | `Succeeded`, no errors | Complete every row |
-| `Succeeded` / `PartiallySucceeded`, every error matched to a row | Fail the matched rows with F&O's text and complete the rest |
+| `Succeeded` / `PartiallySucceeded`, every error matched to a row | Fail the matched rows and complete the rest |
 | Any error whose `RecordId` is null or matches no row | Fail **every** row in the execution: there is no telling what F&O dropped |
 | `PartiallySucceeded` with **zero** errors | **Fail every row.** F&O says something failed and doesn't say what |
-| `Failed` | Matched rows fail with their own text; the rest fail with an "undetermined cause" text listing F&O's errors |
+| `Failed` | Matched rows fail as matched rows; the rest fail with an "undetermined cause" text |
+
+**The settlement text.** `IHandoffClient.FailAsync` puts its text verbatim on the Failed audit row
+(NimBus 4.2.0 source), and NimBus doesn't mask it. F&O's `ErrorMessage` can echo field values, so
+`Decide` never copies it. The production flow did: it failed the matched rows with F&O's text, and
+the unmatched rows with a text that listed F&O's errors **[proven in production]**. The sketch's
+texts name only the adapter's own record keys, the error counts and, from `SettleAsync`, the
+execution id. Keep F&O's texts on your correlation rows, where your own access rules apply, and
+let operators read them there or in the import's execution log in F&O.
 
 <a id="record-keys-and-error-attribution"></a>**Record keys and error attribution [proven in production]:**
 - `RecordId` is the entity's natural key values joined by single spaces, for example
@@ -420,12 +442,13 @@ Classify into the template's three exception types. The circuit breaker counts o
 | 429 on OData or a custom service | Throttled | `Retry-After` is in seconds **[Microsoft docs, verify]**. Retries get no priority over new requests, and the wait grows if you keep sending **[Microsoft docs, verify]** |
 | 429 after the in-process budget is spent | Throttled | Never Rejected, and never a business-error state in F&O **[proven in production]** |
 | 408, 502, 503, 504, timeout, no connection | Unavailable | The first OData call after an AOS restart can be slow while metadata is cached **[Microsoft docs, verify]**. Keep `TimeoutSeconds` generous |
-| 500 whose inner error is `AxODataWriteException` ("Write failed for table row … Infolog: …") | Rejected | A validation failure, not an outage. The status F&O uses for it is **[unverified]**: the snippet catches the 500 case |
+| 500 whose inner error is `AxODataWriteException` ("Write failed for table row … Infolog: …") | Rejected | A validation failure, not an outage. The status F&O uses for it is **[unverified]**: the snippet catches the 500 case. It reports the code `AxODataWriteFailed` and leaves the Infolog out of the failure text (see "Error body" below) |
 | Other 500 | Unavailable | After a POST it may have committed: only safe to retry with lookup-before-create (see [Non-idempotent creates](#non-idempotent-creates-and-retries)) **[proven in production]** |
 | 400 | Rejected | A production adapter dead-lettered 400 and 403 at once **[proven in production]** |
 | 401, 403 | Rejected | Configuration: the app is missing from **Microsoft Entra applications**, or the mapped user lacks a role **[Microsoft docs, verify]**. An operator must fix it; retrying won't |
 | 404 on a `$filter` query | Rejected | A wrong entity set or URL, never "not found" |
 | A failed lookup GET of any kind | Its own class, **never** "not found" | See [Lookup before create](#lookup-before-create-correlation-field) **[proven in production]** |
+| A lookup that answers `200` but isn't the OData collection | Unavailable, **never** "not found" | `{}`, `null`, an HTML page or a row without its key field. Retried by NimBus |
 | Lookup found the record that a lost POST response created | Treat as success: update it | |
 | PATCH where nothing changed | Treat as success: don't write | |
 | DMF `PartiallySucceeded` with zero errors | Failure (FailAsync) | **[proven in production]** |
@@ -451,7 +474,17 @@ Classify into the template's three exception types. The circuit breaker counts o
 - Community and GitHub reports show `{"error":{"code":"","message":"An error has occurred.","innererror":{"message":"Write failed for table row of type '…'. Infolog: …","type":"Microsoft.Dynamics.Platform.Integration.Services.OData.AxODataWriteException"}}}`
   **[unverified]**.
 - `error.code` is often empty, so the template's `ExternalSystemRejectedException.ErrorCode` is
-  rarely useful for F&O; read `innererror.message` instead (the snippet does).
+  rarely useful for F&O.
+- The Infolog in `innererror.message` is what tells an operator why F&O refused the write, but the
+  snippet doesn't copy it into the failure text. NimBus stores that text verbatim and doesn't mask
+  it, and the Infolog can echo field values (the simulator's example names a customer group).
+  - The snippet only checks the body for `AxODataWriteException`, to classify the failure. It then
+    reports its own code, `AxODataWriteFailed`, because F&O's own `error.code` is usually empty.
+  - The failure text names the customer (correlation id or account), the method, the path without
+    its query string and the status. To see F&O's reason, the operator makes the same change to that
+    customer in F&O.
+- No failure text contains a response body, and a `200` that isn't the expected collection reads
+  "… → 200 OK. The response is not the OData collection the adapter expects".
 
 **Retry budget vs. lock:**
 - The template's NimBus retry rule for Throttled starts at 15 s and doubles up to 300 s; it does not
@@ -506,7 +539,8 @@ write, and the change goes back onto the bus.
     expression. The flow then runs only when the expression is true after the change is saved
     **[Microsoft docs, verify]**.
 - **Content, which always works.**
-  - The subscriber doesn't write when nothing changed (the snippet compares first).
+  - The subscriber doesn't write when nothing changed: the template's handler compares first, and
+    the snippet compares again before it PATCHes (see [PATCH bodies](#patch-bodies)).
   - The publisher's deterministic `MessageId` and the subscribers' inbox absorb the rest.
   - This also stops ping-pong when no identity filter is possible. Data events fire on every update,
     even unchanged ones **[Microsoft docs, verify]**, so a no-op write is still an event.
@@ -623,8 +657,8 @@ It drove the throttling tests (throttled then recovered, and throttled beyond th
 
 | File | What it is |
 |---|---|
-| [`snippets/FinanceOperationsODataClient.cs`](snippets/FinanceOperationsODataClient.cs) | `IExternalSystemClient` for F&O OData, keyed by `dataAreaId` + `CustomerAccount`, with the upstream id in a correlation field. It looks up with `$filter` and `cross-company=true`, POSTs to create, and PATCHes only changed, updatable fields to update. A failed lookup is never "not found". A 500 `AxODataWriteException` is Rejected. One place to change the entity set, company, correlation field and create defaults |
-| [`snippets/DmfHandoffSketch.cs`](snippets/DmfHandoffSketch.cs) | Handler side of DMF + PendingHandoff: capture the settlement coordinates, then `MarkPendingHandoff`. Also the settlement rules (`Decide`), the `GetExecutionErrors` parser, and `SettleAsync` over `IHandoffClient`. Storage, the package builder and the poller loop are yours |
+| [`snippets/FinanceOperationsODataClient.cs`](snippets/FinanceOperationsODataClient.cs) | `IExternalSystemClient` for F&O OData, keyed by `dataAreaId` + `CustomerAccount`, with the upstream id in a correlation field. It looks up with `$filter` and `cross-company=true`, POSTs to create, and PATCHes only changed, updatable fields to update. `GetAccountAsync` returns the mapper's shape for the template handler's no-op check. A failed lookup, or a `200` that isn't the collection, is never "not found". A 500 `AxODataWriteException` is Rejected. No failure text contains F&O's response. One place to change the entity set, company, correlation field and create defaults |
+| [`snippets/DmfHandoffSketch.cs`](snippets/DmfHandoffSketch.cs) | Handler side of DMF + PendingHandoff: capture the settlement coordinates, then `MarkPendingHandoff`. Also the settlement rules (`Decide`, whose texts carry record keys and counts, never F&O's error text), the `GetExecutionErrors` parser, and `SettleAsync` over `IHandoffClient`. Storage, the package builder and the poller loop are yours |
 
 Both files use namespace `TemplateAdapter.Adapter.Clients` and the template's `ExternalSystem*`
 types, so the generator's renaming applies to them. Both compile with the template in a Release

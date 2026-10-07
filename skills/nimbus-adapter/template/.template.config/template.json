@@ -45,11 +45,102 @@
       "valueTransform": "firstLowerCase",
       "replaces": "externalSystem"
     },
+    "Endpoint": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "The endpoint class name, which is also the Service Bus topic and subscription name, for example ErpEndpoint. Defaults to {SystemName}Endpoint. Must be a C# identifier and unique in the Service Bus namespace."
+    },
+    "EndpointDefault": {
+      "type": "generated",
+      "generator": "join",
+      "parameters": {
+        "symbols": [
+          {
+            "type": "ref",
+            "value": "SystemName"
+          },
+          {
+            "type": "const",
+            "value": "Endpoint"
+          }
+        ],
+        "separator": ""
+      }
+    },
+    "EndpointName": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "Endpoint",
+        "fallbackVariableName": "EndpointDefault"
+      },
+      "replaces": "ExternalSystemEndpoint",
+      "fileRename": "ExternalSystemEndpoint"
+    },
+    "Contracts": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "local",
+      "description": "Where the catalog (endpoints and events) comes from.",
+      "choices": [
+        {
+          "choice": "local",
+          "description": "A Contracts project in this repo (with a sample upstream endpoint and event)."
+        },
+        {
+          "choice": "package",
+          "description": "A shared platform catalog package; set ContractsPackageId, ContractsPackageVersion, PlatformType and ContractsFeed."
+        }
+      ]
+    },
+    "ContractsPackage": {
+      "type": "computed",
+      "value": "(Contracts == \"package\")"
+    },
+    "ContractsPackageId": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "Contoso.Platform",
+      "description": "Package mode: the catalog package id.",
+      "replaces": "CONTRACTS_PACKAGE_ID"
+    },
+    "ContractsPackageVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "1.0.0",
+      "description": "Package mode: the catalog package version (pinned; the catalog decides the topology).",
+      "replaces": "CONTRACTS_PACKAGE_VERSION"
+    },
+    "PlatformType": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "Contoso.Platform.ContosoPlatform",
+      "description": "Package mode: the full type name of the catalog's Platform class.",
+      "replaces": "PLATFORM_TYPE"
+    },
+    "ContractsFeed": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "https://pkgs.dev.azure.com/<organisation>/_packaging/<feed>/nuget/v3/index.json",
+      "description": "Package mode: the NuGet feed that serves the catalog package (a URL or a folder).",
+      "replaces": "CONTRACTS_FEED"
+    },
     "Inbox": {
       "type": "parameter",
       "datatype": "bool",
       "defaultValue": "true",
       "description": "Deduplicate redeliveries with the NimBus SQL Server inbox (needs a SQL database for the integration platform)."
+    },
+    "Ingress": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "false",
+      "description": "Add the system-to-bus path: a queue of thin change notifications that the adapter re-reads and publishes as events (with a provisioned queue, a simulator driver and tests)."
+    },
+    "IngressEnabled": {
+      "type": "computed",
+      "value": "(Ingress && Contracts == \"local\")"
     },
     "NimBusVersion": {
       "type": "parameter",
@@ -76,6 +167,39 @@
         "**/.vs/**",
         "**/TestResults/**",
         "**/*.user"
+      ],
+      "modifiers": [
+        {
+          "condition": "(!IngressEnabled)",
+          "exclude": [
+            "src/TemplateAdapter.Adapter/Ingress/**",
+            "src/TemplateAdapter.Contracts/ExternalSystem/**",
+            "tests/TemplateAdapter.Tests/IngressProcessorTests.cs"
+          ]
+        },
+        {
+          "condition": "(ContractsPackage)",
+          "exclude": [
+            "src/TemplateAdapter.Contracts/**",
+            "src/TemplateAdapter.Adapter/Handlers/UpstreamAccountUpdatedHandler.cs",
+            "src/TemplateAdapter.Adapter/Mapping/AccountMapper.cs",
+            "tests/TemplateAdapter.Tests/HandlerTests.cs",
+            "tests/TemplateAdapter.Tests/PipelineTests.cs",
+            "TemplateAdapter.slnx",
+            "NuGet.config"
+          ],
+          "rename": {
+            "TemplateAdapter.Package.slnx": "TemplateAdapter.slnx",
+            "NuGet.Package.config": "NuGet.config"
+          }
+        },
+        {
+          "condition": "(!ContractsPackage)",
+          "exclude": [
+            "TemplateAdapter.Package.slnx",
+            "NuGet.Package.config"
+          ]
+        }
       ]
     }
   ],

@@ -9,7 +9,7 @@ on-premises BC and NAV are at the end.
 
 | Tag | Meaning |
 |---|---|
-| **[proven in production]** | Observed in the code of a production adapter. This applies only to the on-premises NAV/BC adapters in the last section. **No production BC online adapter was in the source material.** |
+| **[proven in production]** | Seen in a production adapter's code, documentation or fix history; the kit authors did not re-observe it at runtime. This applies only to the on-premises NAV/BC adapters in the last section. **No production BC online adapter was in the source material.** |
 | **[proven in the NimBus sample]** | Observed in the NimBus `DynamicsBcDemo` sample. Its "Business Central" is a simulator, not a real BC, so the tag proves the adapter side and says nothing about real BC behaviour. |
 | **[Microsoft docs, verify]** | Taken from learn.microsoft.com (see Sources, `S1`…). Check it in a sandbox before you depend on it. |
 | **[unverified]** | Neither documented nor observed. Treat it as a hypothesis and test it in a sandbox. |
@@ -22,12 +22,12 @@ Untagged text is guidance from this kit, not a claim about Business Central.
 |---|---|
 | Base URL | `https://api.businesscentral.dynamics.com/v2.0/<tenant-id>/<environment>/api/v2.0`; custom APIs use `.../api/<publisher>/<group>/<version>`. Most endpoints are company-scoped: `.../companies(<company-id>)/<entitySet>` **[Microsoft docs, verify]** (S16, S17) |
 | Auth | Entra client credentials (service-to-service) with scope `https://api.businesscentral.dynamics.com/.default`. The app needs the `API.ReadWrite.All` application permission and a record on the **Microsoft Entra Applications** page in BC, with permission sets **[Microsoft docs, verify]** (S15) |
-| Change detection | 1. Webhooks: thin, delayed about 30 s, collapsed, expire after 3 days. Re-read the record after each one. 2. Delta polling on `lastModifiedDateTime`. 3. Events raised from an AL extension: business events (preview) or an outbox table. See below for details. |
+| Change detection | 1. Webhooks: thin (no field values), delayed about 30 s and collapsed per record, and expire after 3 days unless renewed **[Microsoft docs, verify]** (S1). Re-read the record after each one. 2. Delta polling on `lastModifiedDateTime`, which Microsoft gives as its own example **[Microsoft docs, verify]** (S6). 3. Events raised from an AL extension: business events, still in preview **[Microsoft docs, verify]** (S25), or an outbox table (the on-premises staging-table pattern **[proven in production]**, and the NimBus sample's outbox **[proven in the NimBus sample]**). See below for details. |
 | Write API | A custom API page over the BC table, with an external-id field added by a table extension. The upsert is `GET ?$filter=externalId eq '…'`, then `POST`, or `PATCH` with `If-Match: <@odata.etag>` **[Microsoft docs, verify]** (S10, S18) |
 | Throttling signal | `429` once a user exceeds 6,000 requests in a 5-minute sliding window, or 100 connections, or 95 queued requests. A request queued for 8 minutes returns `503`. Long requests return `408` or `504` **[Microsoft docs, verify]** (S5, S6) |
 | Outage signal | `502` or `503` with a `retry-after` header **[Microsoft docs, verify]** (S8). Update windows default to 20:00–06:00 local time **[Microsoft docs, verify]** (S22) |
 | Error body | `{"error":{"code":"…","message":"…"}}` with code families `BadRequest_*`, `Authentication_*`, `Authorization_*`, `Internal_*`, `Application_*` and `Request_EntityChanged` **[Microsoft docs, verify]** (S7, S20) |
-| Echo identity | `SystemModifiedBy`, the user security ID (GUID) of the last modifier **[Microsoft docs, verify]** (S14). The standard v2.0 `customer` doesn't expose it (S11), so expose it on your custom API page. Webhook notifications carry no user (S1). |
+| Echo identity | `SystemModifiedBy`, the user security ID (GUID) of the last modifier **[Microsoft docs, verify]** (S14). The standard v2.0 `customer` doesn't expose it **[Microsoft docs, verify]** (S11), so expose it on your custom API page. Webhook notifications carry no user **[Microsoft docs, verify]** (S1). |
 | Batch | `$batch` takes at most 100 operations. Add `Isolation: snapshot` to make it transactional **[Microsoft docs, verify]** (S5, S20) |
 
 ## Authentication
@@ -241,12 +241,16 @@ page 50100 "Integration Customer API"
 ### The upsert pattern (`BusinessCentralApiClient.cs`)
 
 1. **Read.** `GET customers?$filter=externalId eq '<key>'`, with a single quote in the key doubled. Then decide:
-   - **Zero rows:** the customer doesn't exist yet.
+   - **Zero rows** in a well-formed `{"value": []}`: the customer doesn't exist yet.
    - **Two or more rows:** `Rejected`, with the code `DuplicateExternalId`.
    - **A non-success status:** classified as a failure. A `404` on the collection means a wrong route, a wrong company or an uninstalled extension. It must never be read as "no customer", because that leads to a duplicate POST.
+   - **A `200` that isn't that collection** (`{}`, `null`, no `value` array, a row without an `id`, an HTML page from a proxy): `Unavailable`, never "no customer", for the same reason. The external id isn't unique in BC, so nothing would stop the duplicate.
 2. **Missing:** `POST customers`. Null fields are left out so that BC applies its defaults.
 3. **`ownedByBusinessCentral` is set:** `UpsertResult.OwnedByExternalSystem`, and nothing is written.
-4. **Nothing changed:** no write at all, and the result is `Updated`. A redelivery or a resubmit costs one GET. Because nothing is written, BC raises no change and no echo.
+4. **Nothing changed:** no write at all.
+   - The template's `UpstreamAccountUpdatedHandler` checks this first: it calls `GetAccountAsync` and skips the upsert when the result equals the mapped record. A redelivery or a resubmit costs one GET. Because nothing is written, BC raises no change and no echo.
+   - That check only works if `GetAccountAsync` returns the fields exactly as `AccountMapper.ToExternalSystem` produces them. The snippet's `ToAccount` trims the name, trims and upper-cases the country, trims the e-mail, turns BC's `""` into null, and reads the parent from `parentExternalId`. Change it together with the mapper.
+   - The client compares again before it writes (same normalization), so a caller that skips the handler's check still writes nothing; the result is then `Updated`.
 5. **Changed:** `PATCH customers(<id>)` with only the changed fields, and with `If-Match` set to the row's `@odata.etag`.
    - `If-Match` is required on PATCH **[Microsoft docs, verify]** (S10).
    - Microsoft advises not to send unchanged values **[Microsoft docs, verify]** (S10).
@@ -317,6 +321,12 @@ The template's `HttpFailure` classifies failures by HTTP status. This table adds
 | status **[unverified]** | `Internal_ServerError`, `Internal_TenantUnavailable` | **Unavailable** | BC can't reach its database, or the tenant is unavailable **[Microsoft docs, verify]** (S7). |
 | no response or timeout | (none) | **Unavailable** | `HttpFailure.SendAsync` handles it. |
 
+**What the failure text contains**
+
+- NimBus stores the exception message verbatim on the failed message and doesn't mask it. BC's `error.message` can echo field values, so no failure text from the snippet contains a response body.
+- The text names the operation (with the external id), the method, the path without its query string, the status, and BC's `error.code`. The template's `HttpFailure.SanitizeErrorCode` keeps the code only if it looks like one: letters, digits and `_ . -`, at most 64 characters. So `Application_DialogException` and similar codes reach the operator, while free text is dropped.
+- A malformed `200` on the lookup reads "… → 200 OK. The response is not the OData collection the adapter expects".
+
 **Retry-After**
 
 - The template keeps the hint on `ExternalSystemThrottledException.RetryAfter` for diagnostics.
@@ -343,12 +353,12 @@ The template's `HttpFailure` classifies failures by HTTP status. This table adds
 
 - **BC's per-user limits.** BC processes **5** OData requests per user at a time. More requests queue, and a request that waits **8 minutes** gets `503`. Above 100 connections, or 95 queued requests, BC answers `429` **[Microsoft docs, verify]** (S5).
 - **What that means for the adapter.**
-  - Each message makes 1–2 sequential calls: a GET, then a POST or PATCH.
+  - Each message makes 1–4 sequential calls: the handler's GET (plus one for a parent), then, only when something changed, the client's fresh GET and a POST or PATCH.
   - So the requests in flight to BC roughly equal `MaxConcurrentSessions` × replicas.
   - Keep that close to **5 per integration identity**. With the template default of `MaxConcurrentSessions = 8`, set it to 4 or 5 for a single replica, and lower it when KEDA scales out.
   - Requests above 5 only queue inside BC. A request that queues longer than the client timeout (`TimeoutSeconds`, 30 s by default) is cancelled on our side and classified as Unavailable, which feeds the breaker.
   - Whether BC then still executes the cancelled request is **[unverified]**. That's another reason to read before every write.
-- **Rate.** 6,000 requests per 5 minutes is about **20 requests per second** sustained per user **[Microsoft docs, verify]** (S5). An upsert costs 1–2 requests, and a no-op costs 1.
+- **Rate.** 6,000 requests per 5 minutes is about **20 requests per second** sustained per user **[Microsoft docs, verify]** (S5). A change costs 3 requests (GET, GET, write), a no-op costs 1, and a parent check adds 1.
 - **More throughput.** You can spread the load over several service principals **[Microsoft docs, verify]** (S5). Every one of them is then an echo identity.
 - **The sample's numbers aren't evidence.** The NimBus sample runs `MaxConcurrentSessions = 16` against its simulator, which has no concurrency limit **[proven in the NimBus sample]**.
 
@@ -364,7 +374,7 @@ The template's `HttpFailure` classifies failures by HTTP status. This table adds
   - Webhooks collapse changes for 30 seconds **[Microsoft docs, verify]** (S1).
   - When a user edits a record and the integration writes it within that window, the re-read shows the integration as the last writer, and the user's change is dropped.
   - To catch this, also compare the re-read values with the values you last wrote (a hash per record in the integration database), and publish when fields you don't write have changed.
-- **Sink side (bus → BC).** Skip no-op writes, as the snippet does. An unchanged record isn't PATCHed, so BC sees no change and sends no notification.
+- **Sink side (bus → BC).** Skip no-op writes, as the template's handler and the snippet do (see step 4 of the upsert pattern). An unchanged record isn't PATCHed, so BC sees no change and sends no notification.
 
 ## Gotchas
 
@@ -373,6 +383,7 @@ The template's `HttpFailure` classifies failures by HTTP status. This table adds
     - The NimBus sample's simulator refuses BC-owned prospects with `409` and the code `Application_OwnedByBusinessCentral`, and its client's prospect upsert maps any `409` to "owned by BC" **[proven in the NimBus sample]**.
     - Against real BC, that mapping would turn a concurrency conflict into a silently skipped change, so don't copy it.
   - **A GET 404 on a collection is a configuration error, not "missing".** Swallowing it leads to a duplicate POST.
+  - **Neither is a `200` without a `value` array.** `page?.Value ?? []` turns `{}` or `null` into "no match" and POSTs a duplicate. The snippet throws `Unavailable` instead.
   - **You can't make an external-id field unique from a table extension** **[Microsoft docs, verify]** (S19). Expect duplicates unless your AL prevents them.
   - **`$filter` can't use OR across two different fields.** For example, `externalId eq 'x' or number eq 'y'` fails **[Microsoft docs, verify]** (S21).
   - **The standard v2.0 `customer` has neither an external-id field nor `systemModifiedBy`** **[Microsoft docs, verify]** (S11). Plan the AL extension from day one.
@@ -462,7 +473,7 @@ Both files compile into a generated adapter's `Clients/` folder (namespace `Temp
 
 | File | What it gives you |
 |---|---|
-| [snippets/BusinessCentralApiClient.cs](snippets/BusinessCentralApiClient.cs) | `IExternalSystemClient` for BC. It maps accounts to customers on a custom API page, keyed on `externalId`. It finds rows with `GET ?$filter`, creates with `POST`, and updates with `PATCH` and `If-Match: <@odata.etag>`, sending changed fields only. It skips no-op writes, re-reads and retries once after a 409, 412 or 404, rejects duplicate external ids, and turns the ownership flag into `OwnedByExternalSystem`. `CustomersRoute` and `ExternalIdField` are the constants you change. |
+| [snippets/BusinessCentralApiClient.cs](snippets/BusinessCentralApiClient.cs) | `IExternalSystemClient` for BC. It maps accounts to customers on a custom API page, keyed on `externalId`. It finds rows with `GET ?$filter`, creates with `POST`, and updates with `PATCH` and `If-Match: <@odata.etag>`, sending changed fields only. `GetAccountAsync` returns the mapper's shape, so the template's handler can skip no-op writes, and the client skips them too. It re-reads and retries once after a 409, 412 or 404, rejects duplicate external ids, treats a `200` without a `value` array as `Unavailable` (never "not found"), keeps response bodies out of failure texts, and turns the ownership flag into `OwnedByExternalSystem`. `CustomersRoute` and `ExternalIdField` are the constants you change. |
 | [snippets/BusinessCentralWebhookNotification.cs](snippets/BusinessCentralWebhookNotification.cs) | Framework-free webhook ingress helpers: the notification DTOs, `TryGetValidationToken` (the handshake), `TryParse`, `Authentic` (a constant-time `clientState` check per item), `TryParseResource` and `TryResolveResourceUri` (a re-read URL that refuses hosts and paths outside your environment), `NotificationId` and `MessageIdFor` (deterministic ids), `IsEcho` and `NeedsRenewal`. A minimal API usage sketch is in the file header. |
 
 **Wiring the client.** In `ExternalSystemClientRegistration`, change the typed client to `AddHttpClient<IExternalSystemClient, BusinessCentralApiClient>(BusinessCentralApiClient.HttpClientName, …)`. Keep the `BearerTokenHandler` line, then set `BaseUrl` and `Scope` as described under Authentication.
@@ -470,6 +481,8 @@ Both files compile into a generated adapter's `Clients/` folder (namespace `Temp
 **Tests to write.** Use a scripted `HttpMessageHandler` or the simulator to cover:
 
 - not found → POST;
+- a `200` of `{}`, `null` or a row without `id` → `Unavailable`, and no POST;
+- `GetAccountAsync` after an upsert equals `AccountMapper.ToExternalSystem` of the same message (messy whitespace, a lower-case country, a blank e-mail), so the handler writes once for a message delivered twice;
 - unchanged → no write;
 - changed → PATCH with only the changed fields and the row's ETag;
 - 412 → re-read and a second PATCH with the new ETag;
@@ -477,6 +490,7 @@ Both files compile into a generated adapter's `Clients/` folder (namespace `Temp
 - duplicates → `Rejected`;
 - a collection 404 → `Rejected`, not null;
 - 429 → `Throttled`, and 503 → `Unavailable`;
+- no failure text contains the response body (put a name and an e-mail address in the error body and assert they are absent);
 - the handshake, `clientState` filtering and resource parsing, using Microsoft's sample payload (S1).
 
 ## Sources

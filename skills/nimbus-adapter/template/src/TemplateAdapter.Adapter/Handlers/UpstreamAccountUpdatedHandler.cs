@@ -9,8 +9,9 @@ namespace TemplateAdapter.Adapter.Handlers;
 /// Keeps the upstream account in ExternalSystem. The handler is thin: it resolves references,
 /// maps with a pure function and makes one idempotent upsert. It never logs the payload.
 /// <list type="bullet">
-///   <item>Idempotent: the upsert is keyed on the upstream id, so a redelivery or an operator
-///   resubmit changes nothing the second time.</item>
+///   <item>Idempotent: the upsert is keyed on the upstream id, and an account that already holds
+///   the mapped values is not written at all, so a redelivery or an operator resubmit changes
+///   nothing.</item>
 ///   <item>Missing reference: a parent that is not in ExternalSystem yet throws
 ///   <see cref="MissingReferenceException"/> with the remedy (retried a few times, then the session
 ///   blocks for an operator).</item>
@@ -36,7 +37,19 @@ public sealed partial class UpstreamAccountUpdatedHandler(
                 $"Sync account '{parentId}' to ExternalSystem first, then resubmit this message.");
         }
 
-        var result = await externalSystem.UpsertAccountAsync(AccountMapper.ToExternalSystem(message), cancellationToken).ConfigureAwait(false);
+        // Skip no-op writes: a redelivery, a resubmit or an unchanged upstream save must not write
+        // again, because every write fires the target's own plug-ins, flows and change notifications
+        // (and can echo back as a new change). The comparison covers exactly the fields this flow
+        // owns, so the client's read must return them in the same shape the mapper produces.
+        var desired = AccountMapper.ToExternalSystem(message);
+        var current = await externalSystem.GetAccountAsync(desired.AccountKey, cancellationToken).ConfigureAwait(false);
+        if (current == desired)
+        {
+            LogUnchanged(logger, message.AccountId);
+            return;
+        }
+
+        var result = await externalSystem.UpsertAccountAsync(desired, cancellationToken).ConfigureAwait(false);
 
         switch (result)
         {
@@ -59,6 +72,9 @@ public sealed partial class UpstreamAccountUpdatedHandler(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Updated ExternalSystem account {AccountId}.")]
     private static partial void LogUpdated(ILogger logger, string accountId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "ExternalSystem account {AccountId} is already up to date; nothing written.")]
+    private static partial void LogUnchanged(ILogger logger, string accountId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Skipped the change to account {AccountId}: ExternalSystem owns its master data.")]
     private static partial void LogOwnedByExternalSystem(ILogger logger, string accountId);

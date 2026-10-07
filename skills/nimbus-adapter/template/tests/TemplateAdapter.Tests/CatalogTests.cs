@@ -2,7 +2,12 @@
 using System.Reflection;
 using NimBus.Core;
 using NimBus.Core.Events;
-using TemplateAdapter.Contracts;
+using TemplateAdapter.Adapter;
+#if (ContractsPackage)
+using CatalogPlatform = PLATFORM_TYPE;
+#else
+using CatalogPlatform = TemplateAdapter.Contracts.AdapterCatalog;
+#endif
 
 namespace TemplateAdapter.Tests;
 
@@ -13,10 +18,28 @@ namespace TemplateAdapter.Tests;
 [TestClass]
 public sealed class CatalogTests
 {
-    private static readonly AdapterCatalog Catalog = new();
+    private static readonly CatalogPlatform Catalog = new();
 
-    private static IEnumerable<Type> MessageTypes() =>
+    /// <summary>Every event in the catalog (EventTypeIds must be unique across all of them).</summary>
+    private static IEnumerable<Type> AllMessageTypes() =>
         Catalog.EventTypes.Select(t => t.GetEventClassType()).OfType<Type>();
+
+    /// <summary>The events whose conventions this repo answers for.</summary>
+    private static IEnumerable<Type> MessageTypes() =>
+#if (ContractsPackage)
+        // A shared catalog belongs to the platform team: check the events this adapter consumes and produces.
+        OwnEndpoints().SelectMany(e => e.EventTypesConsumed.Concat(e.EventTypesProduced))
+            .Select(t => t.GetEventClassType()).OfType<Type>().Distinct();
+#else
+        AllMessageTypes();
+#endif
+
+    private static IEnumerable<NimBus.Core.Endpoints.IEndpoint> OwnEndpoints() =>
+#if (ContractsPackage)
+        Catalog.Endpoints.Where(e => e.Id == AdapterComposition.EndpointName);
+#else
+        Catalog.Endpoints;
+#endif
 
     [TestMethod]
     public void EveryCommand_HasExactlyOneConsumer()
@@ -32,7 +55,7 @@ public sealed class CatalogTests
         // The EventTypeId is the unqualified class name and is global to the Service Bus namespace:
         // two classes with the same name in different namespaces collide and cross-route. Add the
         // other catalogs that share your namespace to this check.
-        var duplicates = MessageTypes().GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => g.Key);
+        var duplicates = AllMessageTypes().GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => g.Key);
 
         Assert.IsEmpty(duplicates.ToArray(), string.Join(", ", duplicates));
     }
@@ -75,9 +98,10 @@ public sealed class CatalogTests
     [TestMethod]
     public void EventNames_StartWithTheProducingSystem()
     {
-        foreach (var endpoint in Catalog.Endpoints)
+        foreach (var endpoint in OwnEndpoints())
         {
-            var prefix = endpoint.Id.Replace("Endpoint", string.Empty, StringComparison.Ordinal);
+            // The producing system's id (ISystem.SystemId), not the endpoint name, which can differ.
+            var prefix = endpoint.System?.SystemId ?? endpoint.Id.Replace("Endpoint", string.Empty, StringComparison.Ordinal);
             foreach (var produced in endpoint.EventTypesProduced)
                 StringAssert.StartsWith(produced.Id, prefix, StringComparison.Ordinal, $"{produced.Id} is produced by {endpoint.Id}.");
         }

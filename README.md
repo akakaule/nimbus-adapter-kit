@@ -30,7 +30,7 @@ The template generates a Worker / Container App adapter with:
 - the NimBus wiring;
 - typed client failures, retry rules, a circuit breaker and an inbox;
 - a vendor-API simulator;
-- 51 tests;
+- 70 to 84 tests, depending on the options;
 - an Aspire AppHost, Bicep and an Azure DevOps pipeline.
 
 ## Install
@@ -84,6 +84,12 @@ dotnet new nimbus-adapter -n Contoso.ErpAdapter --SystemName BusinessCentral
 ```
 
 Options:
+- `--Ingress true` adds the system → bus path. Change notifications arrive on a queue; the adapter
+  re-reads each record and publishes it with a deterministic MessageId.
+- `--Endpoint <Name>Endpoint` sets the endpoint (topic) name when it isn't `<SystemName>Endpoint`.
+- `--Contracts package` takes the catalog from a shared platform package instead of a local
+  project. It also needs `--ContractsPackageId`, `--ContractsPackageVersion`, `--PlatformType` and
+  `--ContractsFeed`.
 - `--Inbox false` leaves out the SQL inbox.
 - `--NimBusVersion <x.y.z>` pins NimBus; match your Resolver and WebApp.
 

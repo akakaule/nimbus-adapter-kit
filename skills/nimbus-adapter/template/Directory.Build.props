@@ -33,7 +33,7 @@
   <!-- Template source only (removed by dotnet new): switches every template option on, so the
        template folder itself compiles and its tests run with all features. -->
   <PropertyGroup>
-    <DefineConstants>$(DefineConstants);Inbox</DefineConstants>
+    <DefineConstants>$(DefineConstants);Inbox;IngressEnabled</DefineConstants>
   </PropertyGroup>
 <!--#endif -->
 </Project>
