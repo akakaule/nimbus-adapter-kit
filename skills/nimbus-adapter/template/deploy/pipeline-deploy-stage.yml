@@ -28,9 +28,12 @@ stages:
               steps:
                 - download: current
                   artifact: deploy
+#if (!ContractsPackage)
                 - download: current
                   artifact: contracts
 
+#endif
+#if (!ContractsPackage)
                 - task: UseDotNet@2
                   displayName: Use the .NET 10 SDK (for the nb CLI)
                   inputs:
@@ -52,6 +55,10 @@ stages:
                         --environment ${{ parameters.environmentName }} `
                         --resource-group ${{ parameters.resourceGroup }} `
                         --assembly "$(Pipeline.Workspace)/contracts/TemplateAdapter.Contracts.dll"
+#else
+                # The topology comes from the shared catalog package: the platform pipeline applies it
+                # (nb topology apply --platform-package <id>@<version>) before adapters deploy.
+#endif
 
                 - task: AzureCLI@2
                   displayName: Deploy the Container App

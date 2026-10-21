@@ -11,8 +11,9 @@ tables or business events; see the F&O pack for those.
 
 Every statement about Dataverse behaviour carries one of two tags:
 
-- **[proven in production]**: observed in a production Dataverse CE adapter (three adapters on the
-  NimBus architecture, with their plug-ins and fix history).
+- **[proven in production]**: seen in a production adapter's code, documentation or fix history;
+  the kit authors did not re-observe it at runtime. The sources are three production Dataverse CE
+  adapters on the NimBus architecture and their plug-ins.
 - **[Microsoft docs, verify]**: taken from learn.microsoft.com on the date above (URLs under
   [Sources](#sources)). Microsoft changes these. Check them against your environment before you rely on them.
 
@@ -22,8 +23,8 @@ Statements without a tag are design advice for NimBus adapters, not claims about
 
 | Topic | What to use |
 |---|---|
-| Auth | An Entra app registration or managed identity, added to the environment as an **application user** with a security role. Request a token for `https://{org}.crm{n}.dynamics.com/.default`. The template's `BearerTokenHandler` with `DefaultAzureCredential` already does this. **[proven in production]** |
-| Recommended change detection | An **asynchronous** plug-in step or Service Endpoint sends a **thin notification** (table, id, message). The adapter's ingress re-reads the row and publishes it with a deterministic MessageId `{table}:{id}:{versionnumber}`. **[proven in production]** (thin notification and re-read) |
+| Auth | An Entra app registration or managed identity, added to the environment as an **application user** with a security role **[Microsoft docs, verify]**. A managed identity requesting a token for `https://{org}.crm{n}.dynamics.com/.default` works **[proven in production]**. The template's `BearerTokenHandler` with `DefaultAzureCredential` already does this. |
+| Recommended change detection | An **asynchronous** plug-in step **[proven in production]** or Service Endpoint **[Microsoft docs, verify]** sends a **thin notification** (table, id, message). The adapter's ingress re-reads the row **[proven in production]** and publishes it with a deterministic MessageId `{table}:{id}:{versionnumber}`; `versionnumber` is a readable column on every table **[Microsoft docs, verify]**. The MessageId is this kit's advice: the production ingresses used random ids **[proven in production]**. |
 | Write API | `PATCH accounts(new_externalid='...')`, an upsert on an **alternate key**. Lookups use `"parentaccountid@odata.bind": "accounts(new_externalid='...')"`. With the SDK, use `UpsertRequest`. **[Microsoft docs, verify]**. Upsert writes with an external key are **[proven in production]** |
 | Throttling signal | `429 Too Many Requests` with `Retry-After` in seconds and codes `0x80072322`, `0x80072321` and `0x80072326`. Limits apply **per user, per web server**, over a 5-minute sliding window. **[Microsoft docs, verify]** |
 | Echo identity | The `systemuserid` of the adapter's application user. The plug-in compares it with `InitiatingUserId` and skips the change when they match. **[proven in production]** |
@@ -307,6 +308,20 @@ nothing differs. **[proven in production]**
   and no write.
 - This is also the sink-side half of echo prevention.
 
+**How the template and the snippet do it.** The snippet's `PATCH` sends every owned column and has
+no compare of its own. The template's `UpstreamAccountUpdatedHandler` makes the comparison: it calls
+`GetAccountAsync` and skips the upsert when the result equals `AccountMapper.ToExternalSystem(message)`.
+
+- That only works if `GetAccountAsync` returns the owned columns exactly as the mapper produces
+  them. Otherwise every message writes. The snippet trims `name`, trims and upper-cases
+  `address1_country`, trims `emailaddress1`, reads blanks as null, and returns the key it looked up.
+- The parent is compared by its alternate key, so the read expands it:
+  `$expand=parentaccountid($select=new_externalid)`. If the row's current parent has no
+  `new_externalid` (a parent a person picked in Dataverse), it reads as null, differs from the
+  mapped parent, and the handler writes the bind.
+- When you add an owned column, add it to the `PATCH` body, to `$select`, to `DataverseAccountRow`
+  and to `GetAccountAsync`, in the mapper's shape.
+
 Never write back an entity instance that `OrganizationServiceContext` (LINQ) materialised. It is
 tracked as `Unchanged`. **[proven in production]**
 
@@ -438,6 +453,18 @@ alternate key doesn't know about. **[proven in production]**
 `snippets/DataverseErrorCodes.cs` classifies by code first, then by status. A 412 can be a duplicate
 or a version conflict, and a platform fault's status was not verified, so the code decides.
 
+**What the failure text contains.** NimBus stores the exception message verbatim on the failed
+message and doesn't mask it. Dataverse's `error.message`, and a plug-in's text above all, can echo
+field values. So `error.message` only decides the class (the message fragments in the table); it is
+never copied into the failure.
+
+- The text names the operation (with the account key), the method, the path without its query
+  string, the status and `error.code`. The template's `HttpFailure.SanitizeErrorCode` keeps the code
+  only if it looks like one; Dataverse's hex codes (`0x80040265`) pass.
+- The operator looks the code up, and reads a plug-in's own message in the plug-in trace log.
+- A lookup that answers `200` without a `value` array is **Unavailable**, never "not found". The
+  handler's parent check depends on it: "not found" would block the session as a missing reference.
+
 | Signal | Status | Code(s) | Adapter outcome | Source |
 |---|---|---|---|---|
 | Service protection: number of requests | 429 + `Retry-After` (s) | `0x80072322` | **Throttled** (honour `Retry-After`) | **[Microsoft docs, verify]** |
@@ -564,7 +591,9 @@ the relevant columns.
 **Sink side (when writing).**
 
 - **Skip no-op writes.** Read fresh, compare the owned columns, write only the difference. An
-  unchanged write still fires logic. **[proven in production]**
+  unchanged write still fires logic. **[proven in production]** The template's handler does the
+  compare; see [Write only what changed](#write-only-what-changed) for what `GetAccountAsync` must
+  return for it to work.
 - **Bypass custom logic** only for bulk loads (see above). It also skips the echo filter's plug-in,
   which hides the problem instead of fixing it.
 - In the NimBus demo, the simulator never publishes the integration user's writes. Copy that rule
@@ -618,7 +647,7 @@ types.
 
 | File | What it gives you |
 |---|---|
-| [`snippets/DataverseWebApiClient.cs`](snippets/DataverseWebApiClient.cs) | `IExternalSystemClient` over the Web API. It reads with `$filter` + `$select` + `$expand`, upserts by alternate key with `PATCH`, binds the parent by its key, repeats a duplicate-key upsert as update-only, and includes `WithoutAffinityCookie()` for registration |
+| [`snippets/DataverseWebApiClient.cs`](snippets/DataverseWebApiClient.cs) | `IExternalSystemClient` over the Web API. It reads with `$filter` + `$select` + `$expand` and returns the mapper's shape (so the template's handler can skip no-op writes), treats a `200` without a `value` array as Unavailable, upserts by alternate key with `PATCH`, binds the parent by its key, repeats a duplicate-key upsert as update-only, keeps response text out of failure messages, and includes `WithoutAffinityCookie()` for registration |
 | [`snippets/DataverseErrorCodes.cs`](snippets/DataverseErrorCodes.cs) | Reads `error.code` and `error.message` and classifies them as Throttled, Transient, DuplicateKey, NotFound or Rejected, from the codes and production message fragments |
 | [`snippets/DataversePluginEchoFilter.cs`](snippets/DataversePluginEchoFilter.cs) | A plain-C# source-side echo filter (integration-user identity plus a pre/post-image diff). It has no Dataverse SDK dependency, so plug-in projects and the ingress can share it |
 

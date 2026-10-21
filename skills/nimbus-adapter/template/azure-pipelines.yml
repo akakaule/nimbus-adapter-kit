@@ -63,11 +63,12 @@ stages:
             artifact: deploy
             displayName: Publish the deployment files
 
-          # The catalog assembly, for `nb topology apply`. If your catalog lives in a shared platform
-          # package, that package's pipeline applies the topology and this artifact is not needed.
+#if (!ContractsPackage)
+          # The catalog assembly, for `nb topology apply`.
           - publish: src/TemplateAdapter.Contracts/bin/$(buildConfiguration)/net10.0
             artifact: contracts
             displayName: Publish the catalog
+#endif
 
           - task: AzureCLI@2
             displayName: Build and push the container image

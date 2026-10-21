@@ -1,4 +1,7 @@
 using NimBus.Core.Endpoints;
+#if (IngressEnabled)
+using TemplateAdapter.Contracts.ExternalSystem;
+#endif
 using TemplateAdapter.Contracts.Upstream;
 
 namespace TemplateAdapter.Contracts.Endpoints;
@@ -15,6 +18,9 @@ public class ExternalSystemEndpoint : Endpoint
     public ExternalSystemEndpoint()
     {
         Consumes<UpstreamAccountUpdated>();
+#if (IngressEnabled)
+        Produces<ExternalSystemAccountUpdated>();
+#endif
     }
 
     /// <inheritdoc />

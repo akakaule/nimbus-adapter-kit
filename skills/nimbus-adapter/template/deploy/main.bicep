@@ -42,11 +42,18 @@ param externalSystemScope string = ''
 param applicationInsightsConnectionString string = ''
 //#if (Inbox)
 
-@description('Connection string of the integration database that holds the inbox. Pass it from Key Vault in the parameter file.')
-@secure()
-param integrationDatabaseConnectionString string
+@description('Key Vault (existing, same resource group, Azure RBAC permission model) that holds the inbox connection string.')
+param keyVaultName string
+
+@description('Name of the Key Vault secret holding the integration database connection string (the inbox).')
+param integrationDatabaseSecretName string = 'integration-db-connection-string'
 //#endif
 
+//#if (IngressEnabled)
+@description('Ingress queue of this adapter for ExternalSystem change notifications (created here, in the NimBus namespace).')
+param ingressQueueName string = 'externalsystem-changes'
+
+//#endif
 @description('Sessions processed in parallel per replica. Size it to what ExternalSystem tolerates.')
 param maxConcurrentSessions int = 8
 
@@ -64,11 +71,28 @@ var resourceSuffix = '${adapterName}-${environmentName}'
 var serviceBusDataReceiver = '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
 var serviceBusDataSender = '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
 var acrPull = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+//#if (Inbox)
+var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
+//#endif
 
 resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' existing = {
   name: serviceBusNamespaceName
 }
 
+//#if (IngressEnabled)
+// Settings match the provisioner's (local runs): poison notifications dead-letter after 10 attempts.
+resource ingressQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
+  parent: serviceBus
+  name: ingressQueueName
+  properties: {
+    maxDeliveryCount: 10
+    lockDuration: 'PT1M'
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P7D'
+  }
+}
+
+//#endif
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2025-07-01' existing = {
   name: containerAppsEnvironmentName
 }
@@ -77,6 +101,12 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing =
   name: containerRegistryName
 }
 
+//#if (Inbox)
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+
+//#endif
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-${resourceSuffix}'
   location: location
@@ -113,6 +143,20 @@ resource pullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+//#if (Inbox)
+// The app reads the inbox connection string from Key Vault at runtime with its own identity, so
+// the secret never passes through the deployment (no vault deployment permission needed).
+resource secretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, identity.id, keyVaultSecretsUser)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUser)
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+//#endif
 resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
   name: 'ca-${resourceSuffix}'
   location: location
@@ -137,7 +181,8 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
       secrets: [
         {
           name: 'integration-db'
-          value: integrationDatabaseConnectionString
+          keyVaultUrl: '${keyVault.properties.vaultUri}secrets/${integrationDatabaseSecretName}'
+          identity: identity.id
         }
       ]
 //#endif
@@ -162,6 +207,9 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
             { name: 'ExternalSystem__BaseUrl', value: externalSystemBaseUrl }
             { name: 'ExternalSystem__Scope', value: externalSystemScope }
             { name: 'Adapter__MaxConcurrentSessions', value: string(maxConcurrentSessions) }
+//#if (IngressEnabled)
+            { name: 'Ingress__QueueName', value: ingressQueue.name }
+//#endif
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsightsConnectionString }
           ]
         }
@@ -184,6 +232,21 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
               }
             }
           }
+//#if (IngressEnabled)
+          {
+            // And on the backlog of change notifications waiting to be published.
+            name: 'ingress-backlog'
+            custom: {
+              type: 'azure-servicebus'
+              identity: identity.id
+              metadata: {
+                namespace: serviceBus.name
+                queueName: ingressQueue.name
+                messageCount: '50'
+              }
+            }
+          }
+//#endif
         ]
       }
     }
@@ -192,6 +255,9 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
     receiverRole
     senderRole
     pullRole
+//#if (Inbox)
+    secretsUserRole
+//#endif
   ]
 }
 

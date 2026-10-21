@@ -45,13 +45,19 @@ public sealed record DmfPendingRecord(HandoffSettlement Settlement, IReadOnlyLis
 
 /// <summary>One entry of <c>GetExecutionErrors</c>.</summary>
 /// <param name="RecordId">The failing record's key, or <c>null</c> when F&amp;O did not name one.</param>
-/// <param name="ErrorMessage">F&amp;O's error text.</param>
+/// <param name="ErrorMessage">
+/// F&amp;O's error text. It can echo field values, so keep it in your own store (for example on the
+/// correlation row) and never pass it to NimBus: <see cref="DmfHandoff.Decide"/> leaves it out.
+/// </param>
 public sealed record DmfExecutionError(string? RecordId, string? ErrorMessage);
 
 /// <summary>How one handed-off message settles.</summary>
 /// <param name="Record">The message.</param>
 /// <param name="Succeeded"><c>true</c> to complete the handoff, <c>false</c> to fail it.</param>
-/// <param name="ErrorText">Shown on the failed message in the NimBus WebApp.</param>
+/// <param name="ErrorText">
+/// Shown on the failed message in the NimBus WebApp. NimBus stores it verbatim and does not mask it,
+/// so it names record keys and counts only, never F&amp;O's error text.
+/// </param>
 /// <param name="ErrorType">A classifier for grouping and alerting.</param>
 public sealed record DmfSettlementDecision(DmfPendingRecord Record, bool Succeeded, string? ErrorText, string? ErrorType);
 
@@ -134,7 +140,8 @@ public static class DmfHandoff
     /// Reads the <c>value</c> of a <c>GetExecutionErrors</c> response, which is itself a JSON
     /// string holding the error array. F&amp;O can embed raw XML in an error message and make that
     /// string invalid JSON: then the whole text becomes one error without a record id, which fails
-    /// the package instead of leaving every message pending.
+    /// the package instead of leaving every message pending. The error texts are for your own store;
+    /// <see cref="Decide"/> never passes them to NimBus.
     /// </summary>
     public static IReadOnlyList<DmfExecutionError> ParseExecutionErrors(string? value)
     {
@@ -172,9 +179,12 @@ public static class DmfHandoff
     ///   no telling which records F&amp;O dropped.</item>
     ///   <item>PartiallySucceeded with no error that names a message: every message fails. F&amp;O
     ///   says something failed and does not say what.</item>
-    ///   <item>Otherwise the messages F&amp;O names fail with its error text and the rest succeed;
-    ///   for Failed, the rest fail with an undetermined cause.</item>
+    ///   <item>Otherwise the messages F&amp;O names fail (with their record keys and an error count)
+    ///   and the rest succeed; for Failed, the rest fail with an undetermined cause.</item>
     /// </list>
+    /// No decision carries F&amp;O's error text: NimBus stores the settlement text verbatim on the audit
+    /// row, and F&amp;O's messages can echo field values. The operator reads them in F&amp;O's execution
+    /// log for the import, or in your store.
     /// </summary>
     public static IReadOnlyList<DmfSettlementDecision>? Decide(
         string status,
@@ -198,13 +208,13 @@ public static class DmfHandoff
         var undetermined = UndeterminedCause(status, unattributed);
 
         if (status != DmfExecutionStatus.Failed
-            && (unattributed.Count > 0 || (status == DmfExecutionStatus.PartiallySucceeded && byRecord.Count == 0)))
+            && (unattributed > 0 || (status == DmfExecutionStatus.PartiallySucceeded && byRecord.Count == 0)))
         {
             return FailAll(records, undetermined, ImportFailed);
         }
 
-        return [.. records.Select(record => byRecord.TryGetValue(record, out var text)
-            ? new DmfSettlementDecision(record, Succeeded: false, Truncate(text), RecordRejected)
+        return [.. records.Select(record => byRecord.TryGetValue(record, out var rejected)
+            ? new DmfSettlementDecision(record, Succeeded: false, RejectedText(rejected), RecordRejected)
             : status == DmfExecutionStatus.Failed
                 ? new DmfSettlementDecision(record, Succeeded: false, undetermined, ImportFailed)
                 : new DmfSettlementDecision(record, Succeeded: true, ErrorText: null, ErrorType: null))];
@@ -213,7 +223,8 @@ public static class DmfHandoff
     /// <summary>
     /// Settles each decision through NimBus. Settle first, then mark your rows terminal: if the
     /// process stops in between, the next poll settles again, and NimBus completes a settlement
-    /// that no longer matches a blocked session without changing anything.
+    /// that no longer matches a blocked session without changing anything. A failure's text gets the
+    /// execution id, which the operator needs to find the import's errors in F&amp;O.
     /// </summary>
     public static async Task SettleAsync(
         IHandoffClient handoff,
@@ -234,35 +245,45 @@ public static class DmfHandoff
             {
                 await handoff.FailAsync(
                     decision.Record.Settlement,
-                    decision.ErrorText ?? $"The F&O import {executionId} failed.",
+                    decision.ErrorText is { } text ? $"{text} Execution id: {executionId}." : $"The F&O import {executionId} failed.",
                     decision.ErrorType,
                     cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
-    private static (Dictionary<DmfPendingRecord, string> ByRecord, List<string> Unattributed) Attribute(
+    /// <summary>
+    /// Ties each error to the messages whose keys it matches. Only the adapter's own keys and counts
+    /// are kept: F&amp;O's <c>RecordId</c> and text stay out of the settlement.
+    /// </summary>
+    private static (Dictionary<DmfPendingRecord, RejectedKeys> ByRecord, int Unattributed) Attribute(
         IReadOnlyList<DmfExecutionError> errors,
         IReadOnlyList<DmfPendingRecord> records)
     {
-        var byRecord = new Dictionary<DmfPendingRecord, string>(ReferenceEqualityComparer.Instance);
-        var unattributed = new List<string>();
+        var byRecord = new Dictionary<DmfPendingRecord, RejectedKeys>(ReferenceEqualityComparer.Instance);
+        var unattributed = 0;
 
         foreach (var error in errors)
         {
-            var text = error.ErrorMessage ?? "F&O reported an error without a message.";
-            var matched = error.RecordId is { } recordId
-                ? records.Where(record => record.RecordKeys.Any(key => Matches(key, recordId))).ToList()
-                : [];
-
-            if (matched.Count == 0)
+            var matched = false;
+            foreach (var record in records)
             {
-                unattributed.Add(error.RecordId is null ? text : $"{error.RecordId}: {text}");
-                continue;
+                var keys = error.RecordId is { } recordId
+                    ? record.RecordKeys.Where(key => Matches(key, recordId)).ToList()
+                    : [];
+                if (keys.Count == 0)
+                    continue;
+
+                if (!byRecord.TryGetValue(record, out var rejected))
+                    byRecord[record] = rejected = new RejectedKeys();
+                rejected.Errors++;
+                foreach (var key in keys)
+                    rejected.Keys.Add(key.Key.TrimEnd());
+                matched = true;
             }
 
-            foreach (var record in matched)
-                byRecord[record] = byRecord.TryGetValue(record, out var existing) ? existing + "\n" + text : text;
+            if (!matched)
+                unattributed++;
         }
 
         return (byRecord, unattributed);
@@ -276,10 +297,15 @@ public static class DmfHandoff
     private static List<DmfSettlementDecision> FailAll(IReadOnlyList<DmfPendingRecord> records, string errorText, string errorType) =>
         [.. records.Select(record => new DmfSettlementDecision(record, Succeeded: false, errorText, errorType))];
 
-    private static string UndeterminedCause(string status, List<string> unattributed) =>
-        unattributed.Count == 0
+    private static string RejectedText(RejectedKeys rejected) =>
+        Truncate($"F&O rejected this message's record {string.Join(", ", rejected.Keys.Select(key => $"'{key}'"))} in the import "
+            + $"({rejected.Errors} error(s)). Read the errors in the import's execution log in F&O, fix the data, then resubmit.");
+
+    private static string UndeterminedCause(string status, int unattributed) =>
+        unattributed == 0
             ? $"The F&O import ended {status} and F&O returned no error for this message's records. Check the import in F&O before you resubmit."
-            : Truncate($"The F&O import ended {status} with errors that cannot be tied to one message, so the whole package failed. F&O reported:\n{string.Join("\n", unattributed)}");
+            : $"The F&O import ended {status} with {unattributed} error(s) that cannot be tied to one message, so the whole package failed. "
+                + "Read the errors in the import's execution log in F&O before you resubmit.";
 
     private static string? ReadString(JsonElement item, string name)
     {
@@ -293,4 +319,12 @@ public static class DmfHandoff
     }
 
     private static string Truncate(string text) => text.Length > MaxErrorTextChars ? text[..MaxErrorTextChars] + "…" : text;
+
+    /// <summary>The adapter's keys of one message that F&amp;O named in errors, and how many errors named them.</summary>
+    private sealed class RejectedKeys
+    {
+        public SortedSet<string> Keys { get; } = new(StringComparer.Ordinal);
+
+        public int Errors { get; set; }
+    }
 }

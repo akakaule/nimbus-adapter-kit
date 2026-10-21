@@ -15,22 +15,32 @@ Retries were the most common root cause in production adapter fixes:
 ## Solution: NimBus owns retries, keyed on exception types
 
 ```csharp
+// "<full type name>:" is how Exception.ToString() starts, so the key matches the exception itself.
+static string RuleKey<T>() where T : Exception => typeof(T).FullName + ":";
+
 subscriber.ConfigureRetryPolicies(policies => policies
-    .AddExceptionRule(nameof(ErpThrottledException), new RetryPolicy
+    .AddExceptionRule(RuleKey<ErpThrottledException>(), new RetryPolicy
     {
         MaxRetries = 8, Strategy = BackoffStrategy.Exponential,
         BaseDelay = TimeSpan.FromSeconds(15), MaxDelay = TimeSpan.FromMinutes(5), Jitter = JitterMode.Bounded,
     })
-    .AddExceptionRule(nameof(ErpUnavailableException), new RetryPolicy { MaxRetries = 8, Strategy = BackoffStrategy.Exponential,
+    .AddExceptionRule(RuleKey<ErpUnavailableException>(), new RetryPolicy { MaxRetries = 8, Strategy = BackoffStrategy.Exponential,
         BaseDelay = TimeSpan.FromSeconds(30), MaxDelay = TimeSpan.FromMinutes(10), Jitter = JitterMode.Bounded })
-    .AddExceptionRule(nameof(MissingReferenceException), new RetryPolicy { MaxRetries = 3, BaseDelay = TimeSpan.FromSeconds(60) }));
+    .AddExceptionRule(RuleKey<MissingReferenceException>(), new RetryPolicy { MaxRetries = 3, BaseDelay = TimeSpan.FromSeconds(60) }));
 ```
 
 - **Each NimBus retry is a new, broker-scheduled, audited attempt.** It is visible in the WebApp,
   and it does not hold the lock while waiting.
-- **Rules match a substring of `"{inner exception} {exception}"`** (type names, messages and
-  **stack traces**). Key on exception *type names* (`nameof(...)`), never on a status code or
-  message text.
+- **Rules match a case-insensitive substring of `"{inner exception} {exception}"`**, which
+  includes messages and **stack traces**. In NimBus 4.2 the rule sees only that text, never the
+  exception object, so type-safe matching isn't possible. Make text matching precise instead:
+  - Key each rule on the exception's **full type name followed by a colon**
+    (`ExternalSystemResilience.RuleKey<T>()` in the template). Never key on a status code, a short
+    type name (`nameof`) or message text.
+  - Keep untrusted text out of messages. Messages carry no response bodies (`20`), and error codes
+    are sanitized with no `:`. Then a vendor's echo cannot make a rejection borrow a throttling
+    rule.
+  - A test proves it: a rejection whose message names a retried type gets no policy.
 - **No default policy, deliberately.** A failure without a rule (a rejection) fails at once and
   blocks its session for an operator. Add `SetDefaultPolicy` only with a reason.
 - **No other retry layer.**

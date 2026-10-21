@@ -23,7 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+<!--#if (ContractsPackage)
+    <PackageReference Include="CONTRACTS_PACKAGE_ID" />
+#else -->
     <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
+<!--#endif -->
     <ProjectReference Include="..\TemplateAdapter.ServiceDefaults\TemplateAdapter.ServiceDefaults.csproj" />
   </ItemGroup>
 

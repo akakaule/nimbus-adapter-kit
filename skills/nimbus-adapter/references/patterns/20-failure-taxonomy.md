@@ -29,13 +29,26 @@ re-read and retry once; see the system pack).
 The template's `Clients/` implements this: `HttpFailure.SendAsync` and `ThrowOnFailureAsync`, plus
 the three exception types.
 
-- **The failure message carries what an operator needs**, because NimBus stores only the exception
-  type and message:
-  `"{operation} failed: {api} {METHOD} {path} → {status} {reason}. Body: {first 500 chars}"`.
-  It never includes the request body or secrets. The response body is truncated, because vendor
-  error texts can echo values.
+- **The failure message carries what an operator needs, and nothing personal.** NimBus stores the
+  exception type and message verbatim in the audit trail and does **not** mask them. The format is:
+  `"{operation} failed: {api} {METHOD} {path} → {status} {reason}. Error code: {code}."`
+  - It never contains a request or response body. Vendor error messages echo field values (names,
+    e-mail addresses), and truncating them doesn't remove that.
+  - It never contains a query string.
+  - The operation names the record by its key. The operator looks the code and the record up in
+    the system itself (for example the Dataverse plug-in trace log, or BC telemetry).
 - **Parse the vendor error code** (`error.code` in OData-style bodies) into `ErrorCode`. It lets
-  you special-case a code without matching on text.
+  you special-case a code without matching on text. Keep it only if it looks like a code
+  (`HttpFailure.SanitizeErrorCode`: letters, digits, `_ . -`, at most 64 characters). Anything else
+  is free text.
+- **A success that isn't the expected shape is Unavailable, never "not found".** Examples are a
+  `200` with `null`, `{}`, a missing `value` collection or a proxy's HTML page. Reading it as "not
+  found" makes the caller create a duplicate. Only a 404 (or an empty, well-formed collection) means
+  not found.
+- **A failure to get a token is classified too** (the template's `BearerTokenHandler`):
+  - a transient identity-service failure is Unavailable and retried;
+  - misconfiguration is also Unavailable, with a message that says so. It fails every message, so
+    it should open the breaker and alert, not block every session one by one.
 - **System-specific remaps happen here, not in handlers.** Examples:
   - a 400 that is really throttling;
   - Dataverse error codes for service-protection limits;
@@ -46,7 +59,7 @@ the three exception types.
 - **Name rules**:
   - Exception names must not contain "Validation", "Serialization" or "Deserialization". The
     opt-in permanent-failure classifier dead-letters those.
-  - The names *are* the retry-rule keys (`21`).
+  - The full type names *are* the retry-rule keys (`21`).
 - **Caller cancellation (shutdown) propagates unchanged.** Only timeouts become Unavailable.
 
 ## Tests
@@ -58,8 +71,9 @@ One test per row of the table, using a `StubHandler`:
 - no connection;
 - a timeout versus shutdown cancellation;
 - each expected non-success answer;
-- the failure text contains the operation, method, path and status but not the request body, and
-  is truncated.
+- a malformed success (`null`, `{}`, HTML) is Unavailable, never "not found";
+- the failure text contains the operation, method, path, status and code, but no request or
+  response body and no query string.
 
 ## Anti-patterns
 

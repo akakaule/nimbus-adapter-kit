@@ -48,6 +48,30 @@ public sealed class ResilienceTests
     }
 
     [TestMethod]
+    public void ARejection_IsNeverRetried_EvenWhenItsTextNamesARetriedExceptionType()
+    {
+        // Rules match text, so a message that echoes another exception's (short) type name must not
+        // borrow that exception's retry policy. Rules are keyed on "<full type name>:".
+        var policies = Policies(new ExternalSystemResilienceOptions());
+
+        var rejected = policies.GetRetryPolicy(
+            EventTypeId,
+            MatchedText(new ExternalSystemRejectedException(
+                "Upsert ExternalSystem account 'ExternalSystemThrottledException' failed: … → 422. Error code: ExternalSystemUnavailableException_x.", 422, null)));
+
+        Assert.IsNull(rejected);
+    }
+
+    [TestMethod]
+    public void RuleKeys_AreTheFullTypeNameFollowedByAColon()
+    {
+        var key = ExternalSystemResilience.RuleKey<ExternalSystemThrottledException>();
+
+        Assert.AreEqual(typeof(ExternalSystemThrottledException).FullName + ":", key);
+        StringAssert.StartsWith(new ExternalSystemThrottledException("x", null).ToString(), key, StringComparison.Ordinal);
+    }
+
+    [TestMethod]
     public void AMissingReference_IsRetriedAFewTimes_ThenBlocksTheSession()
     {
         var options = new ExternalSystemResilienceOptions();

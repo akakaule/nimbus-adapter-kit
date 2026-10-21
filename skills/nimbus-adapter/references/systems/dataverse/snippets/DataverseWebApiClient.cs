@@ -2,7 +2,9 @@ using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace TemplateAdapter.Adapter.Clients;
 
@@ -17,8 +19,9 @@ namespace TemplateAdapter.Adapter.Clients;
 //      Keep the BearerTokenHandler line: it is how the client authenticates.
 //   3. Set ExternalSystem:BaseUrl to https://<org>.crm<n>.dynamics.com/api/data/v9.2/ (trailing slash)
 //      and ExternalSystem:Scope to https://<org>.crm<n>.dynamics.com/.default.
-//   4. Change the table, key and column names below to your own. new_externalid must be defined as
-//      an ALTERNATE KEY on the table (and its index must be Active), or every call returns 400.
+//   4. Change the table, key and column names below to your own (also the JSON names on
+//      DataverseAccountRow). new_externalid must be defined as an ALTERNATE KEY on the table (and its
+//      index must be Active), or every call returns 400.
 
 /// <summary>
 /// <see cref="IExternalSystemClient"/> for the Dataverse Web API, for the <c>account</c> table with an
@@ -26,12 +29,18 @@ namespace TemplateAdapter.Adapter.Clients;
 /// <list type="bullet">
 ///   <item>Read: <c>GET accounts?$filter=new_externalid eq '...'</c> with <c>$select</c> and the parent's
 ///   key through <c>$expand</c>. A filter, not the key segment <c>accounts(new_externalid='...')</c>,
-///   because key segments reject values containing <c>/ &lt; &gt; * % &amp; : \ ? +</c>.</item>
+///   because key segments reject values containing <c>/ &lt; &gt; * % &amp; : \ ? +</c>. Only a
+///   well-formed, empty <c>value</c> array is "not found"; a 200 without one throws Unavailable, so an
+///   API problem never turns into a missing parent.</item>
 ///   <item>Write: <c>PATCH accounts(new_externalid='...')</c> is an upsert: Dataverse creates the row
 ///   when the key is new and updates it otherwise, so a redelivery changes nothing. The parent is set
 ///   with <c>parentaccountid@odata.bind</c> to the parent's ALTERNATE KEY, so no GUID lookup is needed.</item>
 ///   <item><c>Prefer: return=representation</c> turns the 204 into 201 (created) or 200 (updated), at
 ///   the cost of an extra read on the server; drop it if you do not need the distinction.</item>
+///   <item>No-op writes: the PATCH sends every owned column and has no compare of its own. The
+///   template's handler skips the upsert when <see cref="GetAccountAsync"/> returns exactly the mapped
+///   record, so <see cref="GetAccountAsync"/> returns the owned columns in the shape
+///   <c>AccountMapper.ToExternalSystem</c> produces. Change the two together.</item>
 ///   <item>Errors are classified by <see cref="DataverseErrorCodes"/> first (a 4xx with a "retry later"
 ///   code is Unavailable), then by <see cref="HttpFailure"/> (429 Throttled with Retry-After, 5xx and
 ///   timeouts Unavailable, other 4xx Rejected).</item>
@@ -49,15 +58,27 @@ public sealed class DataverseWebApiClient(HttpClient http) : IExternalSystemClie
     private const string EntitySet = "accounts";
     private const string KeyColumn = "new_externalid";
 
-    // Only the columns the adapter maps. Never read all columns: it is slower and couples the adapter
-    // to every column a maker adds.
-    private const string Columns = "$select=name,address1_country,emailaddress1," + KeyColumn
+    // Only the columns the adapter maps (DataverseAccountRow), plus the parent's alternate key, which
+    // the mapper's ParentAccountKey is compared with. Never read all columns: it is slower and couples
+    // the adapter to every column a maker adds.
+    private const string Columns = "$select=name,address1_country,emailaddress1"
         + "&$expand=parentaccountid($select=" + KeyColumn + ")";
 
     // Characters Dataverse rejects inside a key segment (Microsoft docs: alternate keys).
     private static readonly SearchValues<char> KeySegmentUnsafe = SearchValues.Create("/<>*%&:\\?+");
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Reads the account by its alternate key. Returns <c>null</c> only when Dataverse answers with an
+    /// empty <c>value</c> array.
+    /// <para>
+    /// The result is in the shape <c>AccountMapper.ToExternalSystem</c> produces, normalized the same
+    /// way: name trimmed, country trimmed and upper-case, e-mail trimmed, blanks as null, and the
+    /// parent as its <c>new_externalid</c> (read through <c>$expand</c>; a parent without that key reads
+    /// as null). The handler compares it with the mapped record and skips the write when they are
+    /// equal, so a field read in any other shape would make every message write. The key is the one
+    /// looked up: an alternate key matches without regard to case in the usual collation.
+    /// </para>
+    /// </summary>
     public async Task<ExternalSystemAccount?> GetAccountAsync(string accountKey, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(accountKey);
@@ -70,14 +91,37 @@ public sealed class DataverseWebApiClient(HttpClient http) : IExternalSystemClie
             () => http.SendAsync(request, cancellationToken), operation, ApiName, cancellationToken).ConfigureAwait(false);
         await ThrowOnFailureAsync(response, operation, cancellationToken).ConfigureAwait(false);
 
-        var page = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken).ConfigureAwait(false);
-        return page?["value"] is JsonArray { Count: > 0 } rows && rows[0] is JsonObject row
+        DataverseAccountPage? page;
+        try
+        {
+            page = await response.Content.ReadFromJsonAsync<DataverseAccountPage>(cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException)
+        {
+            throw NotACollection(response, operation);
+        }
+
+        // Only a well-formed collection counts. A 200 without a "value" array (or with a null row) is
+        // an API or proxy problem; read as "not found" it would block the session on a parent that exists.
+        if (page?.Value is not { } rows || rows.Any(row => row is null))
+            throw NotACollection(response, operation);
+
+        if (rows.Count > 1)
+        {
+            throw new ExternalSystemRejectedException(
+                $"{operation} failed: {ApiName} returned {rows.Count} accounts for one {KeyColumn}. "
+                + $"Check that {KeyColumn} is an alternate key and that its index is Active, then resubmit this message.",
+                (int)response.StatusCode,
+                errorCode: null);
+        }
+
+        return rows is [{ } row]
             ? new ExternalSystemAccount(
-                AccountKey: (string?)row[KeyColumn] ?? accountKey,
-                Name: (string?)row["name"] ?? string.Empty,
-                CountryCode: (string?)row["address1_country"],
-                Email: (string?)row["emailaddress1"],
-                ParentAccountKey: (string?)(row["parentaccountid"] as JsonObject)?[KeyColumn])
+                AccountKey: accountKey,
+                Name: row.Name?.Trim() ?? string.Empty,
+                CountryCode: Normalized(row.Country)?.ToUpperInvariant(),
+                Email: Normalized(row.Email),
+                ParentAccountKey: row.Parent?.ExternalId is { } parent && !string.IsNullOrWhiteSpace(parent) ? parent : null)
             : null;
     }
 
@@ -121,7 +165,9 @@ public sealed class DataverseWebApiClient(HttpClient http) : IExternalSystemClie
     {
         // Only the columns the adapter owns. Never send the key column: on an update Dataverse ignores
         // it, on a create it copies the key from the URL. Sending unchanged values still fires every
-        // plug-in and flow filtered on those columns, so skip no-op writes in the handler.
+        // plug-in and flow filtered on those columns, so the template's UpstreamAccountUpdatedHandler
+        // skips the call when GetAccountAsync already returns the mapped record. A column added here
+        // must be added to Columns ($select) and to GetAccountAsync, in the mapper's shape.
         var body = new JsonObject
         {
             ["name"] = account.Name,
@@ -145,6 +191,12 @@ public sealed class DataverseWebApiClient(HttpClient http) : IExternalSystemClie
     /// Throws the exception NimBus should see. A 4xx that Dataverse marks as a platform fault (SQL
     /// timeout, database unavailable) is Unavailable, so NimBus retries it instead of blocking the
     /// session; everything else is classified by status in <see cref="HttpFailure"/>.
+    /// <para>
+    /// Dataverse's <c>error.message</c> decides the class but never goes into the failure text:
+    /// NimBus stores that text verbatim, and Dataverse messages (a plug-in's text especially) can echo
+    /// field values. The text carries the request, the status and the sanitized <c>error.code</c>;
+    /// the operator looks the code up, and reads a plug-in's own text in Dataverse's plug-in trace log.
+    /// </para>
     /// </summary>
     private static async Task ThrowOnFailureAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
     {
@@ -157,11 +209,21 @@ public sealed class DataverseWebApiClient(HttpClient http) : IExternalSystemClie
             && DataverseErrorCodes.Classify((int)response.StatusCode, code, message) == DataverseFailureKind.Transient)
         {
             throw new ExternalSystemUnavailableException(
-                HttpFailure.Describe(response, operation, ApiName, body.Length > 500 ? body[..500] + "…" : body));
+                HttpFailure.DescribeFailure(response, operation, ApiName, HttpFailure.SanitizeErrorCode(code)));
         }
 
         await HttpFailure.ThrowOnFailureAsync(response, operation, ApiName, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// A 200 that is not the expected collection. Unavailable, not "not found": it is usually a proxy,
+    /// gateway or maintenance page, and a later attempt reads the real answer. No body in the text.
+    /// </summary>
+    private static ExternalSystemUnavailableException NotACollection(HttpResponseMessage response, string operation) =>
+        new(HttpFailure.DescribeFailure(response, operation, ApiName, errorCode: null)
+            + " The response is not the OData collection the adapter expects, so it is not read as \"not found\".");
+
+    private static string? Normalized(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static async Task<bool> IsDuplicateKeyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
@@ -206,6 +268,27 @@ public sealed class DataverseWebApiClient(HttpClient http) : IExternalSystemClie
     private static string Literal(string value) =>
         "'" + Uri.EscapeDataString(value.Replace("'", "''", StringComparison.Ordinal)) + "'";
 }
+
+/// <summary>The <c>accounts</c> collection as the read returns it: <c>{"value": [...]}</c>.</summary>
+/// <param name="Value">The rows. Null when the response has no <c>value</c> array, which the client rejects.</param>
+public sealed record DataverseAccountPage(
+    [property: JsonPropertyName("value")] IReadOnlyList<DataverseAccountRow?>? Value);
+
+/// <summary>One <c>account</c> row with the columns the client selects. Rename the JSON names to your columns.</summary>
+/// <param name="Name"><c>name</c>.</param>
+/// <param name="Country"><c>address1_country</c>.</param>
+/// <param name="Email"><c>emailaddress1</c>.</param>
+/// <param name="Parent">The expanded <c>parentaccountid</c>, or null when the row has no parent.</param>
+public sealed record DataverseAccountRow(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("address1_country")] string? Country,
+    [property: JsonPropertyName("emailaddress1")] string? Email,
+    [property: JsonPropertyName("parentaccountid")] DataverseParentKey? Parent);
+
+/// <summary>The parent account, expanded to its alternate key only.</summary>
+/// <param name="ExternalId">The parent's <c>new_externalid</c>; null for a parent the integration did not create.</param>
+public sealed record DataverseParentKey(
+    [property: JsonPropertyName("new_externalid")] string? ExternalId);
 
 /// <summary>Dataverse-specific <see cref="IHttpClientBuilder"/> settings.</summary>
 public static class DataverseHttpClientBuilderExtensions

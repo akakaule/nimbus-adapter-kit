@@ -24,7 +24,7 @@ public sealed class HandlerTests
     }
 
     [TestMethod]
-    public async Task HandlingTheSameMessageTwice_LeavesOneAccount()
+    public async Task HandlingTheSameMessageTwice_WritesOnce()
     {
         var externalSystem = new RecordingExternalSystemClient();
         var handler = Handler(externalSystem);
@@ -33,6 +33,30 @@ public sealed class HandlerTests
         await handler.Handle(Account(), null!, CancellationToken.None);
 
         Assert.HasCount(1, externalSystem.Accounts);
+        Assert.HasCount(1, externalSystem.Upserts, "The second delivery finds the account up to date and writes nothing.");
+    }
+
+    [TestMethod]
+    public async Task AnAccountThatAlreadyHoldsTheValues_IsNotWritten()
+    {
+        // Every write fires the target's plug-ins and change notifications, and can echo back.
+        var externalSystem = new RecordingExternalSystemClient();
+        externalSystem.Accounts["ACC-1001"] = AccountMapper.ToExternalSystem(Account());
+
+        await Handler(externalSystem).Handle(Account(), null!, CancellationToken.None);
+
+        Assert.IsEmpty(externalSystem.Upserts);
+    }
+
+    [TestMethod]
+    public async Task AChangedField_IsWritten()
+    {
+        var externalSystem = new RecordingExternalSystemClient();
+        externalSystem.Accounts["ACC-1001"] = AccountMapper.ToExternalSystem(Account()) with { Name = "Fabrikam (old name)" };
+
+        await Handler(externalSystem).Handle(Account(), null!, CancellationToken.None);
+
+        Assert.AreEqual("Fabrikam Marine", externalSystem.Upserts.Single().Name);
     }
 
     [TestMethod]
@@ -94,6 +118,9 @@ public sealed class HandlerTests
         Assert.AreEqual("Fabrikam Marine", account.Name);
         Assert.AreEqual("DK", account.CountryCode);
         Assert.IsNull(account.Email);
+        var blankCountry = Account();
+        blankCountry.CountryCode = "  ";
+        Assert.IsNull(AccountMapper.ToExternalSystem(blankCountry).CountryCode, "Blank means null, as every client reads it.");
         Assert.IsNull(account.ParentAccountKey);
     }
 

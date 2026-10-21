@@ -1,7 +1,12 @@
+#if (IngressEnabled)
+using Azure.Messaging.ServiceBus;
+#endif
+#if (!ContractsPackage)
 using NimBus.SDK;
 using NimBus.SDK.Extensions;
 using TemplateAdapter.Contracts.Endpoints;
 using TemplateAdapter.Contracts.Upstream;
+#endif
 using TemplateAdapter.Simulator;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,7 +20,9 @@ var hasServiceBus = !string.IsNullOrWhiteSpace(builder.Configuration.GetConnecti
 if (hasServiceBus)
 {
     builder.AddAzureServiceBusClient("servicebus");
+#if (!ContractsPackage)
     builder.Services.AddNimBusPublisher(nameof(UpstreamEndpoint));
+#endif
 }
 
 var app = builder.Build();
@@ -99,6 +106,32 @@ emulator.MapDelete("/faults", (SimulatorState state) =>
     return Results.NoContent();
 });
 
+#if (IngressEnabled)
+// Plays a user changing an account in ExternalSystem: stores the change and sends the thin change
+// notification ExternalSystem's trigger would send to the adapter's ingress queue. Writes through
+// the API above (the adapter's own writes) send nothing, which is the echo filter at the source.
+emulator.MapPost("/accounts/{accountKey}/changed", async (string accountKey, SimulatedAccount body, SimulatorState state, TimeProvider clock, IServiceProvider services) =>
+{
+    if (services.GetService<ServiceBusClient>() is not { } serviceBus)
+        return Results.Problem("Service Bus is not configured (ConnectionStrings:servicebus).", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    var created = !state.Accounts.ContainsKey(accountKey);
+    state.Accounts[accountKey] = body with { AccountKey = accountKey };
+    var notification = new
+    {
+        entity = "account",
+        key = accountKey,
+        changeType = created ? "created" : "updated",
+        changedOn = clock.GetUtcNow(),
+    };
+
+    await using var sender = serviceBus.CreateSender(app.Configuration["Simulator:ChangeQueueName"] ?? "externalsystem-changes");
+    await sender.SendMessageAsync(new ServiceBusMessage(BinaryData.FromObjectAsJson(notification)) { ContentType = "application/json" }).ConfigureAwait(false);
+    return Results.Accepted(value: notification);
+});
+
+#endif
+#if (!ContractsPackage)
 // Publishes an UpstreamAccountUpdated as the upstream system would: a deterministic MessageId
 // (the same change published twice is deduplicated by the adapter's inbox) and the session key.
 emulator.MapPost("/upstream/accounts", async (UpstreamAccountUpdated message, IServiceProvider services) =>
@@ -113,6 +146,7 @@ emulator.MapPost("/upstream/accounts", async (UpstreamAccountUpdated message, IS
     await publisher.Publish(message, message.GetSessionId(), correlationId: messageId, messageId: messageId).ConfigureAwait(false);
     return Results.Accepted(value: new { messageId });
 });
+#endif
 
 app.Run();
 

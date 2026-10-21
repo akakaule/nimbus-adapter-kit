@@ -10,9 +10,15 @@ or as a Claude Code plugin.
   names, customer repo names or paths, customer endpoint/entity prefixes, or code copied
   verbatim from a customer adapter. State provenance generically, e.g. "production Dataverse CE
   adapter". CI runs a denylist scan; a hit fails the build.
-- **Every fact about an external system is tagged.** Use **[proven in production]** for
-  behaviour observed in a running adapter, and **[Microsoft docs, verify]** for anything taken
-  from documentation. Never present an untested claim as proven.
+- **Every fact about an external system is tagged**, and the tags mean exactly this:
+  - **[proven in production]**: seen in a production adapter's code, documentation or fix history.
+    The kit authors did not re-observe it at runtime.
+  - **[proven in the NimBus sample]**: shown in a NimBus sample against a simulator, so it says
+    nothing about the real system.
+  - **[Microsoft docs, verify]**: taken from documentation, with the source cited.
+  - **[unverified]**: neither documented nor observed.
+
+  Never present an untested claim as proven.
 - **NimBus API names must match the pinned NimBus version** (`NimBusVersion` in
   `skills/nimbus-adapter/template/Directory.Packages.props`). Check the API against the NimBus
   source or package before you write it into a pattern or snippet. CI greps for known-stale
@@ -27,7 +33,8 @@ or as a Claude Code plugin.
 - **Skill files must stay portable.**
   - Frontmatter is only `name` and `description`.
   - Use no tool names specific to one agent.
-  - Commands are `dotnet`/`az` only (customers are on Windows).
+  - Commands are Windows-ready: `dotnet`, `az` and `git`, written so they run as-is in PowerShell.
+    No bash-only syntax (`$(...)`, `&&` chains with bash semantics, `/tmp`).
   - Paths are relative to `SKILL.md`.
 
 ## Layout

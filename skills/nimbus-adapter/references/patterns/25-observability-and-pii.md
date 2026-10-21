@@ -23,8 +23,9 @@ Meanwhile full IDoc XML, reflection dumps and payloads in logs leak personal dat
   status, plus the system's error (`20`). `MissingReferenceException` names the key and the
   remedy (`14`).
 - **Personal data**: mark it `[Sensitive]` in the catalog, so the WebApp masks it. NimBus does not
-  mask exception texts or logs, so keep personal data out of them: truncate vendor bodies, and
-  never echo request bodies.
+  mask exception texts or logs, so keep personal data out of them: never put request or vendor
+  response bodies into failure texts (`20`; truncating is not enough), and never key records on
+  personal data (paths and operations name the key).
 - **Metrics that matter**:
   - upserts by outcome (created, updated, unchanged, owned);
   - lookups and cache hit rate;

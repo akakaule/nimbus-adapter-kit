@@ -111,19 +111,70 @@ public sealed class ExternalSystemClientTests
     }
 
     [TestMethod]
-    public async Task TheFailureText_GivesTheOperatorWhatToActOn_WithoutTheRequestBody()
+    public async Task TheFailureText_GivesTheOperatorWhatToActOn_WithoutAnyBody()
     {
-        var longBody = "{\"error\":{\"code\":\"X\",\"message\":\"" + new string('x', 2000) + "\"}}";
-        var client = Client(StubHandler.Returning(HttpStatusCode.UnprocessableEntity, longBody));
-        var account = Account with { Email = "secret@fabrikam-marine.example" };
+        // NimBus stores the message verbatim in the audit trail and does not mask it; vendor error
+        // texts echo field values. Only operation, request, status and the error code may appear.
+        var vendorBody = """{"error":{"code":"Application_FieldValidation","message":"The e-mail 'echoed.secret@fabrikam-marine.example' is invalid."}}""";
+        var client = Client(StubHandler.Returning(HttpStatusCode.UnprocessableEntity, vendorBody));
+        var account = Account with { Email = "request.secret@fabrikam-marine.example" };
 
         var ex = await Assert.ThrowsExactlyAsync<ExternalSystemRejectedException>(() => client.UpsertAccountAsync(account, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "Upsert ExternalSystem account 'ACC-1001' failed", StringComparison.Ordinal);
         StringAssert.Contains(ex.Message, "PUT /api/accounts/ACC-1001", StringComparison.Ordinal);
         StringAssert.Contains(ex.Message, "422", StringComparison.Ordinal);
-        Assert.IsFalse(ex.Message.Contains("secret@", StringComparison.Ordinal), "The request body must never reach the failure text.");
-        Assert.IsLessThan(800, ex.Message.Length, "The response body is truncated.");
+        StringAssert.Contains(ex.Message, "Error code: Application_FieldValidation.", StringComparison.Ordinal);
+        Assert.IsFalse(ex.Message.Contains("secret@", StringComparison.Ordinal), "Neither the request nor the response body may reach the failure text.");
+    }
+
+    [TestMethod]
+    [DataRow("Uses spaces and an e-mail a@b.example", DisplayName = "free text")]
+    [DataRow("TemplateAdapter.Adapter.Clients.ExternalSystemThrottledException:", DisplayName = "a retry rule key")]
+    [DataRow("A_very_long_code_that_goes_on_and_on_well_past_sixty_four_characters_x", DisplayName = "too long")]
+    public async Task ErrorCodesThatAreNotCodes_AreDropped(string code)
+    {
+        var client = Client(StubHandler.Returning(HttpStatusCode.BadRequest, "{\"error\":{\"code\":\"" + code + "\",\"message\":\"m\"}}"));
+
+        var ex = await Assert.ThrowsExactlyAsync<ExternalSystemRejectedException>(() => client.UpsertAccountAsync(Account, CancellationToken.None));
+
+        Assert.IsNull(ex.ErrorCode);
+        Assert.IsFalse(ex.Message.Contains("Error code", StringComparison.Ordinal), ex.Message);
+    }
+
+    [TestMethod]
+    public async Task VendorCodesThatEndInException_AreKept()
+    {
+        var client = Client(StubHandler.Returning(HttpStatusCode.BadRequest, """{"error":{"code":"Application_DialogException","message":"m"}}"""));
+
+        var ex = await Assert.ThrowsExactlyAsync<ExternalSystemRejectedException>(() => client.UpsertAccountAsync(Account, CancellationToken.None));
+
+        Assert.AreEqual("Application_DialogException", ex.ErrorCode);
+    }
+
+    [TestMethod]
+    [DataRow("null", DisplayName = "null")]
+    [DataRow("{}", DisplayName = "an empty object")]
+    [DataRow("<html>proxy</html>", DisplayName = "not JSON")]
+    public async Task ASuccessThatIsNotAnAccount_IsUnavailable_NeverNotFound(string body)
+    {
+        // "Not found" makes the caller create the record; a malformed success must not.
+        var client = Client(StubHandler.Returning(HttpStatusCode.OK, body));
+
+        await Assert.ThrowsExactlyAsync<ExternalSystemUnavailableException>(() => client.GetAccountAsync("ACC-1001", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task TheFailureText_LeavesOutTheQueryString()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://externalsystem.test/") };
+        using var response = await http.GetAsync(new Uri("api/accounts?$filter=email eq 'person@fabrikam.example'", UriKind.Relative));
+
+        var text = HttpFailure.DescribeFailure(response, "Find account", "ExternalSystem API", errorCode: null);
+
+        StringAssert.Contains(text, "GET /api/accounts → 400", StringComparison.Ordinal);
+        Assert.IsFalse(text.Contains("person@", StringComparison.Ordinal), text);
     }
 
     [TestMethod]

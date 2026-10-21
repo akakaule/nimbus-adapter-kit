@@ -2,6 +2,11 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+#if (IngressEnabled)
+using NimBus.Core.Events;
+using NimBus.Core.Messages;
+using NimBus.SDK;
+#endif
 using TemplateAdapter.Adapter.Clients;
 
 namespace TemplateAdapter.Tests;
@@ -80,3 +85,43 @@ internal sealed class RecordingExternalSystemClient : IExternalSystemClient
         }
     }
 }
+#if (IngressEnabled)
+
+/// <summary>
+/// Records what would have been published, after the same validation the real publisher does. Set
+/// <see cref="NextFailure"/> to make the next publish throw.
+/// </summary>
+internal sealed class CapturingPublisher : IPublisherClient
+{
+    public List<(IEvent Event, string? SessionId, string? MessageId)> Published { get; } = [];
+
+    public Exception? NextFailure { get; set; }
+
+    public Task Publish(IEvent @event) => Publish(@event, @event.GetSessionId(), string.Empty, null);
+
+    public Task Publish(IMessage message, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task Publish(IEvent @event, string sessionId, string correlationId) => Publish(@event, sessionId, correlationId, null);
+
+    public Task Publish(IEvent @event, string sessionId, string correlationId, string? messageId)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        if (NextFailure is { } failure)
+        {
+            NextFailure = null;
+            throw failure;
+        }
+
+        @event.Validate();
+        Published.Add((@event, sessionId, messageId));
+        return Task.CompletedTask;
+    }
+
+    public Task PublishBatch(IEnumerable<IEvent> events, string? correlationId = null) => Task.CompletedTask;
+
+    public IEnumerable<IEnumerable<IEvent>> GetBatches(List<IEvent> events)
+    {
+        yield return events;
+    }
+}
+#endif

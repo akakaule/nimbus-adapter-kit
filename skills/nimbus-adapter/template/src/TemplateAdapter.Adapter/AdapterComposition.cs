@@ -8,11 +8,12 @@ using NimBus.Inbox.SqlServer;
 #endif
 using NimBus.SDK.Extensions;
 using TemplateAdapter.Adapter.Clients;
-using TemplateAdapter.Adapter.Handlers;
+#if (IngressEnabled)
+using TemplateAdapter.Adapter.Ingress;
+#endif
 using TemplateAdapter.Adapter.Observability;
 using TemplateAdapter.Adapter.Options;
 using TemplateAdapter.Adapter.Resilience;
-using TemplateAdapter.Contracts.Endpoints;
 
 namespace TemplateAdapter.Adapter;
 
@@ -22,8 +23,11 @@ namespace TemplateAdapter.Adapter;
 /// </summary>
 public static class AdapterComposition
 {
-    /// <summary>The endpoint this adapter receives on: topic and subscription name.</summary>
-    public const string EndpointName = nameof(ExternalSystemEndpoint);
+    /// <summary>
+    /// The endpoint this adapter receives on: topic and subscription name, and the catalog endpoint's
+    /// class name (an architecture test checks the catalog has it).
+    /// </summary>
+    public const string EndpointName = "ExternalSystemEndpoint";
 
     /// <summary>Connection name of the Service Bus namespace (<c>ConnectionStrings:servicebus</c>).</summary>
     public const string ServiceBusConnectionName = "servicebus";
@@ -80,6 +84,16 @@ public static class AdapterComposition
         // Replays messages parked behind a blocked session once the blocking message is resolved.
         // Every subscriber endpoint needs it; without it, parked messages wait forever.
         builder.Services.AddNimBusDeferredProcessorHostedService(EndpointName);
+#if (IngressEnabled)
+
+        // System → bus: change notifications from ExternalSystem's ingress queue are re-read and
+        // published as events of this endpoint (publish, then complete).
+        var ingress = builder.Configuration.GetSection(IngressOptions.SectionName).Get<IngressOptions>() ?? new IngressOptions();
+        builder.Services.AddSingleton(ingress);
+        builder.Services.AddNimBusPublisher(EndpointName);
+        builder.Services.AddSingleton<IngressProcessor>();
+        builder.Services.AddHostedService<IngressWorker>();
+#endif
 
         return builder;
     }
@@ -97,7 +111,7 @@ public static class AdapterComposition
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(resilience);
 
-        subscriber.AddHandlersFromAssemblyContaining<UpstreamAccountUpdatedHandler>();
+        subscriber.AddHandlersFromAssembly(typeof(AdapterComposition).Assembly);
 #if (Inbox)
 
         // Skips a message whose MessageId was already handled successfully. Only works when the

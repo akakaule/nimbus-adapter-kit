@@ -19,6 +19,12 @@
     <PackageVersion Include="Akaule.NimBus.Testing" Version="$(NimBusVersion)" />
   </ItemGroup>
 
+<!--#if (ContractsPackage)
+  <ItemGroup Label="Catalog">
+    <PackageVersion Include="CONTRACTS_PACKAGE_ID" Version="CONTRACTS_PACKAGE_VERSION" />
+  </ItemGroup>
+
+#endif -->
   <ItemGroup Label="Hosting and clients">
     <PackageVersion Include="Aspire.Azure.Messaging.ServiceBus" Version="$(AspireVersion)" />
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
