@@ -15,7 +15,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $skillRoot = Join-Path $root 'skills'
 $failures = [System.Collections.Generic.List[string]]::new()
 
-# 1. API names that do not exist (or no longer exist) in NimBus 4.x. Keep this list in step with
+# 1. API names that do not exist (or no longer exist) in NimBus 5.x. Keep this list in step with
 #    the NimBus version the template pins.
 $staleApis = @(
     @{ Pattern = '\bPublishAsync\('; Reason = 'IPublisherClient has Publish(...), not PublishAsync' }
@@ -23,6 +23,8 @@ $staleApis = @(
     @{ Pattern = '\bMetricsMiddleware\b'; Reason = 'there is no MetricsMiddleware; use the NimBus instrumentation' }
     @{ Pattern = '\.RetryPolicies\('; Reason = 'use ConfigureRetryPolicies(...)' }
     @{ Pattern = '\bIPermanentFailureClassifier\b'; Reason = 'replaced by IFailureDispositionClassifier' }
+    @{ Pattern = '\bRuleKey<'; Reason = 'retry rules match exception types: AddExceptionRule<TException>(policy)' }
+    @{ Pattern = 'AddExceptionRule\(RuleKey'; Reason = 'retry rules match exception types: AddExceptionRule<TException>(policy)' }
 )
 $files = Get-ChildItem -LiteralPath $skillRoot -Recurse -File -Include '*.md', '*.cs' |
     Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }
@@ -69,8 +71,22 @@ Get-ChildItem -LiteralPath $skillRoot -Recurse -Filter '*.md' |
         }
     }
 
+# 4. No template C# file ends on a conditional. The .NET 11 SDK's template engine leaves the
+#    closing #endif behind when a switched-off block is the last thing in a file, and the generated
+#    project then fails to compile. Put the block before another type instead. A file that
+#    template.json drops entirely when its condition is false is safe.
+$wholeFileConditionals = @('LocalInboxTableCreator.cs')
+Get-ChildItem -LiteralPath (Join-Path $skillRoot 'nimbus-adapter' 'template') -Recurse -Filter '*.cs' |
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.Name -notin $wholeFileConditionals } |
+    ForEach-Object {
+        $last = Get-Content -LiteralPath $_.FullName | Where-Object { $_.Trim() } | Select-Object -Last 1
+        if ($last -match '^\s*#endif\b') {
+            $failures.Add("$($_.FullName): ends with #endif (move the conditional block before another type)")
+        }
+    }
+
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Host "   $_" }
     throw "$($failures.Count) content check(s) failed."
 }
-Write-Host 'Content checks passed: no stale API names, valid frontmatter, links resolve.'
+Write-Host 'Content checks passed: no stale API names, valid frontmatter, links resolve, no file ends on a conditional.'
