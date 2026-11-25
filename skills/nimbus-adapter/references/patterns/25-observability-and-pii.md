@@ -10,7 +10,7 @@ Meanwhile full IDoc XML, reflection dumps and payloads in logs leak personal dat
 
 ## Solution
 
-- **OpenTelemetry through ServiceDefaults**: traces, metrics and logs, including the NimBus
+- **OpenTelemetry through ServiceDefaults** (the `Akaule.NimBus.ServiceDefaults` package): traces, metrics and logs, including the NimBus
   instrumentation (`AddNimBusInstrumentation`). Export with OTLP locally (the Aspire dashboard) and
   with Azure Monitor (`APPLICATIONINSIGHTS_CONNECTION_STRING`) in Azure.
 - **Logs**:

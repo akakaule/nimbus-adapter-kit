@@ -7,7 +7,9 @@ end. Work through the steps in order and keep the user informed between steps.
 
 - Check `dotnet --version` (needs a .NET 10 SDK) and, for deployment work, `az bicep version`.
 - Find out which NimBus version the customer's environment runs (the Resolver and WebApp). The
-  template defaults to 4.2.0; pass `--NimBusVersion` if it differs.
+  template defaults to 5.6.0; pass `--NimBusVersion` if it differs. The template needs NimBus 4.3
+  or later (typed retry rules, the ServiceDefaults and AspireHosting packages), and 5.5 or later
+  for `--InboxStore table`.
 - Ask whether the customer keeps the message catalog in a shared **platform package** (a
   `*.Platform` / `*.Contracts` NuGet package that registers all endpoints). If so, note:
   - its package id and version;
@@ -53,9 +55,10 @@ dotnet test <folder>/<name>.slnx -c Release
 | `--SystemName <System>` (required) | PascalCase, no spaces (`BusinessCentral`, `Dataverse`, `FinanceOperations`). Names the client, the exceptions and, by default, the endpoint |
 | `--Endpoint <Name>Endpoint` | The endpoint (Service Bus topic) is not called `<System>Endpoint`, for example in an existing catalog |
 | `--Ingress true` | The system publishes changes (system → bus). Adds a queue of thin change notifications that the adapter re-reads and publishes (patterns 04–06), with the queue in the provisioner and the Bicep, a simulator driver and tests. Local catalog only |
-| `--Inbox false` | No SQL database for an inbox (then every handler must be safely re-runnable) |
+| `--InboxStore table` | The inbox goes in Azure Table Storage instead of the integration database: the adapter has no SQL database of its own (`patterns/05`) |
+| `--Inbox false` | No inbox at all (then every handler must be safely re-runnable) |
 | `--Contracts package` plus `--ContractsPackageId`, `--ContractsPackageVersion`, `--PlatformType`, `--ContractsFeed` | The catalog is a shared platform package (see step 6) |
-| `--NimBusVersion 4.x.y` | The environment runs another NimBus version |
+| `--NimBusVersion x.y.z` | The environment runs another NimBus version |
 
 The endpoint name must be unique in the namespace. The generated solution passes its tests before
 you change anything; if it does not, stop and report. One exception: with `--Contracts package`

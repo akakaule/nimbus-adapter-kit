@@ -15,7 +15,7 @@ Last verified: 2026-10-01
 - **[unverified]**: neither observed in production nor documented on Learn. Test it in a sandbox
   before you rely on it, and record what you see in the simulator.
 
-Statements about NimBus behaviour come from the NimBus 4.2.0 source.
+Statements about NimBus behaviour come from the NimBus 5.6.0 source.
 
 ## At a glance
 
@@ -281,7 +281,7 @@ deterministic `MessageId`, so the inbox drops redeliveries.
   - If you must, share one retry budget across all calls for the message. In production: 120 s in
     total, and each `Retry-After` capped at 60 s **[proven in production]**.
   - Keep the budget well inside the receiver's lock renewal (`MaxAutoLockRenewalDuration`, 5 minutes
-    by default in NimBus 4.2.0). An expired lock means redelivery, which means concurrent duplicate
+    by default in NimBus 5.6.0). An expired lock means redelivery, which means concurrent duplicate
     writes.
 - **Exhausted throttling is not a business rejection.** When the budget runs out, the production
   adapter throws a distinct "throttling exhausted" exception **[proven in production]**:
@@ -379,7 +379,7 @@ execution id, and the sender waited out the full handoff timeout.
 | `Failed` | Matched rows fail as matched rows; the rest fail with an "undetermined cause" text |
 
 **The settlement text.** `IHandoffClient.FailAsync` puts its text verbatim on the Failed audit row
-(NimBus 4.2.0 source), and NimBus doesn't mask it. F&O's `ErrorMessage` can echo field values, so
+(NimBus 5.6.0 source), and NimBus doesn't mask it. F&O's `ErrorMessage` can echo field values, so
 `Decide` never copies it. The production flow did: it failed the matched rows with F&O's text, and
 the unmatched rows with a text that listed F&O's errors **[proven in production]**. The sketch's
 texts name only the adapter's own record keys, the error counts and, from `SettleAsync`, the

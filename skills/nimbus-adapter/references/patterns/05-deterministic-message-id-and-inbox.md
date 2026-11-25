@@ -52,9 +52,25 @@ subscriber.UseInbox(inbox =>
   anyway.
 - Retries and replays of a message that eventually succeeded are recognized: NimBus carries the
   original id along.
-- The inbox lives in the **integration platform's own database**. Never use the external system's
-  database, which is often SaaS and not yours. The table is created on first use, so either grant
-  that once or create it up front (`AutoCreateTable = false`).
+- The inbox lives in the **integration platform's own storage**. Never use the external system's
+  database, which is often SaaS and not yours.
+- **Choose the store** (the template's `--InboxStore`):
+  - **SQL Server** (`sql`, the default), when the integration platform already has a database.
+    The table is created on first use, so either grant that once or create it up front
+    (`AutoCreateTable = false`).
+  - **Azure Table Storage** (`table`, NimBus 5.5 and later), for an adapter that would otherwise
+    need a database only for the inbox:
+
+    ```csharp
+    var table = new TableClient(new Uri("https://<account>.table.core.windows.net"), "NimBusInbox", credential);
+    builder.Services.AddNimBusAzureTableInbox(table);
+    subscriber.UseInbox(inbox => inbox.DeduplicationStore = InboxStore.AzureTable);
+    ```
+
+    One dedicated table; the adapter's identity gets *Storage Table Data Contributor* on that
+    table only. It stores hashes and timestamps, no payloads. Each endpoint is one partition, and
+    one cleanup pass removes at most 1,000 expired receipts per instance, so for a busy endpoint
+    shorten `CleanupInterval` or use SQL (NimBus `docs/inbox-pattern.md`).
 
 ## Per system
 

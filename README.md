@@ -1,7 +1,7 @@
 # NimBus Adapter Kit
 
 Patterns, an agent skill and a `dotnet new` template for building
-[NimBus](https://github.com/akakaule/NimBus) adapters. An adapter is the service that connects an
+[NimBus](https://github.com/context-and-oss/NimBus) adapters. An adapter is the service that connects an
 external system to a NimBus event bus on Azure Service Bus. The kit covers:
 - Dataverse / Dynamics 365 CE;
 - Business Central;
@@ -30,8 +30,9 @@ The template generates a Worker / Container App adapter with:
 - the NimBus wiring;
 - typed client failures, retry rules, a circuit breaker and an inbox;
 - a vendor-API simulator;
-- 70 to 84 tests, depending on the options;
-- an Aspire AppHost, Bicep and an Azure DevOps pipeline.
+- 71 to 87 tests, depending on the options;
+- an Aspire AppHost that runs the whole stack locally (the NimBus Service Bus emulator, Resolver
+  and WebApp included), Bicep and an Azure DevOps pipeline.
 
 ## Install
 
@@ -50,7 +51,7 @@ default_source = "github"
 tools = ["claude", "codex"]
 dependencies = [
     { handle = "akakaule/nimbus-adapter-kit/nimbus-adapter", type = "skill" },
-    { handle = "akakaule/NimBus/adapter-docs", type = "skill" },
+    { handle = "context-and-oss/NimBus/adapter-docs", type = "skill" },
 ]
 
 [[source]]
@@ -90,8 +91,10 @@ Options:
 - `--Contracts package` takes the catalog from a shared platform package instead of a local
   project. It also needs `--ContractsPackageId`, `--ContractsPackageVersion`, `--PlatformType` and
   `--ContractsFeed`.
-- `--Inbox false` leaves out the SQL inbox.
-- `--NimBusVersion <x.y.z>` pins NimBus; match your Resolver and WebApp.
+- `--InboxStore table` keeps the inbox in Azure Table Storage instead of SQL Server.
+- `--Inbox false` leaves out the inbox.
+- `--NimBusVersion <x.y.z>` pins NimBus (default 5.6.0); match your Resolver and WebApp. The
+  template needs 4.3 or later, and 5.5 or later for the Table inbox.
 
 ## Quick start with an agent
 

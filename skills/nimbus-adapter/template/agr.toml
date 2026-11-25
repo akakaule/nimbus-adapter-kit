@@ -7,7 +7,7 @@ dependencies = [
     # Patterns, the ExternalSystem knowledge pack and the flow / review checklists.
     { handle = "akakaule/nimbus-adapter-kit/nimbus-adapter", type = "skill" },
     # TDD and events documentation (docs/TDD.md, docs/events.md).
-    { handle = "akakaule/NimBus/adapter-docs", type = "skill" },
+    { handle = "context-and-oss/NimBus/adapter-docs", type = "skill" },
 ]
 
 [[source]]

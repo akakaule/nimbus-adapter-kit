@@ -20,6 +20,10 @@ when the circuit breaker opens. Use Functions knowingly:
 2. **A session-enabled `[ServiceBusTrigger]` class** for the endpoint's subscription, with
    `AutoCompleteMessages = false`, passing each message to NimBus's subscriber client.
    **Without this class, `AddNimBusSubscriber` receives nothing and messages stay Pending.**
+   - Bind **both** `ServiceBusMessageActions` (settlement) and `ServiceBusSessionMessageActions`
+     (session state), and call `subscriber.Handle(message, messageActions, sessionActions)`.
+   - The overload that takes only the session actions is obsolete since NimBus 4.11: it cannot
+     complete or dead-letter, so the handler runs and the message is left unsettled.
 3. **A second, non-session `[ServiceBusTrigger]` class** on the `deferredprocessor`
    subscription that calls `DeferredMessageDispatcher.ProcessAsync`. Without it, parked messages
    never replay.

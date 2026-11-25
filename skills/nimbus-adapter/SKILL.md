@@ -58,8 +58,9 @@ current Microsoft documentation before you depend on it, and say so in your summ
    - A malformed success is Unavailable, never "not found".
    - Handlers never catch-and-swallow.
 3. **Retries belong to NimBus.**
-   - Configure them with `ConfigureRetryPolicies` exception rules keyed on the exception's full
-     type name plus `:`.
+   - Configure them with `ConfigureRetryPolicies` and typed rules,
+     `AddExceptionRule<TException>(policy)`. The throttled exception carries the server's
+     Retry-After as `IRetryAfterHint`.
    - Never add HttpClient resilience handlers, Polly or retry loops, and never key a rule on a
      status code or message text.
    - Keep any SDK-internal retry inside the Service Bus lock.
@@ -83,6 +84,6 @@ current Microsoft documentation before you depend on it, and say so in your summ
 
 ## Versions
 
-The template and the patterns target **NimBus 4.2** (`Akaule.NimBus.*` packages) and .NET 10. If
+The template and the patterns target **NimBus 5.6** (`Akaule.NimBus.*` packages) and .NET 10. If
 the adapter pins another NimBus version (`<NimBusVersion>` in `Directory.Packages.props`), check
 API names against that version's source before you use them.

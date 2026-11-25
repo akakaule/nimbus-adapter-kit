@@ -15,37 +15,41 @@ Retries were the most common root cause in production adapter fixes:
 ## Solution: NimBus owns retries, keyed on exception types
 
 ```csharp
-// "<full type name>:" is how Exception.ToString() starts, so the key matches the exception itself.
-static string RuleKey<T>() where T : Exception => typeof(T).FullName + ":";
-
 subscriber.ConfigureRetryPolicies(policies => policies
-    .AddExceptionRule(RuleKey<ErpThrottledException>(), new RetryPolicy
+    .AddExceptionRule<ErpThrottledException>(new RetryPolicy
     {
         MaxRetries = 8, Strategy = BackoffStrategy.Exponential,
         BaseDelay = TimeSpan.FromSeconds(15), MaxDelay = TimeSpan.FromMinutes(5), Jitter = JitterMode.Bounded,
     })
-    .AddExceptionRule(RuleKey<ErpUnavailableException>(), new RetryPolicy { MaxRetries = 8, Strategy = BackoffStrategy.Exponential,
+    .AddExceptionRule<ErpUnavailableException>(new RetryPolicy { MaxRetries = 8, Strategy = BackoffStrategy.Exponential,
         BaseDelay = TimeSpan.FromSeconds(30), MaxDelay = TimeSpan.FromMinutes(10), Jitter = JitterMode.Bounded })
-    .AddExceptionRule(RuleKey<MissingReferenceException>(), new RetryPolicy { MaxRetries = 3, BaseDelay = TimeSpan.FromSeconds(60) }));
+    .AddExceptionRule<MissingReferenceException>(new RetryPolicy { MaxRetries = 3, BaseDelay = TimeSpan.FromSeconds(60) }));
+
+// The server's Retry-After travels on the exception; NimBus never retries sooner than that.
+public sealed class ErpThrottledException(string message, TimeSpan? retryAfter)
+    : ErpException(message), IRetryAfterHint
+{
+    public TimeSpan? RetryAfter { get; } = retryAfter;
+}
 ```
 
 - **Each NimBus retry is a new, broker-scheduled, audited attempt.** It is visible in the WebApp,
   and it does not hold the lock while waiting.
-- **Rules match a case-insensitive substring of `"{inner exception} {exception}"`**, which
-  includes messages and **stack traces**. In NimBus 4.2 the rule sees only that text, never the
-  exception object, so type-safe matching isn't possible. Make text matching precise instead:
-  - Key each rule on the exception's **full type name followed by a colon**
-    (`ExternalSystemResilience.RuleKey<T>()` in the template). Never key on a status code, a short
-    type name (`nameof`) or message text.
-  - Keep untrusted text out of messages. Messages carry no response bodies (`20`), and error codes
-    are sanitized with no `:`. Then a vendor's echo cannot make a rejection borrow a throttling
-    rule.
-  - A test proves it: a rejection whose message names a retried type gets no policy.
+- **Rules match the exception's type.** `AddExceptionRule<TException>` (NimBus 4.3 and later)
+  matches the handler's exception or any inner exception of that type, subclasses included.
+  - Never use the text overload, `AddExceptionRule("…", policy)`. It matches a case-insensitive
+    substring of `"{inner exception} {exception}"`, which includes messages and **stack traces**,
+    so `"429"` also matches a line number, an id or an echoed response body.
+  - Rules are checked in registration order and the first match wins, so register a subclass
+    before its base type.
+  - `ConfigureRetryPolicies` on the subscriber replaces any `IRetryPolicyProvider` registered in
+    DI. Put every rule in the one place.
+  - A test proves the typing: a rejection whose message names a retried type gets no policy.
 - **No default policy, deliberately.** A failure without a rule (a rejection) fails at once and
   blocks its session for an operator. Add `SetDefaultPolicy` only with a reason.
 - **No other retry layer.**
-  - No `AddStandardResilienceHandler`. The template's ServiceDefaults leave it out, and an
-    architecture test guards that.
+  - No `AddStandardResilienceHandler`. `Akaule.NimBus.ServiceDefaults` leaves it out unless you
+    set `UseStandardResilienceHandler`, and an architecture test guards that.
   - No Polly around client calls, and no loops.
   - SDK clients with built-in retry (Dataverse `ServiceClient`): set `MaxRetryCount` and
     `RetryPauseTime` so the worst case fits well inside the lock (about 5 minutes with renewal),
@@ -57,9 +61,10 @@ subscriber.ConfigureRetryPolicies(policies => policies
   - Raise `UnavailableMaxRetries` and `CircuitBreakDurationSeconds` together. While the circuit is
     open the receivers are paused, but each half-open probe uses up one retry of one message.
   - A longer break duration means fewer probes, so fewer attempts are used up during the window.
-- **Retry-After.** NimBus handler retries use the policy schedule; the server's Retry-After hint
-  is captured on the Throttled exception but not yet honoured. Pick a `BaseDelay` above the
-  system's usual Retry-After.
+- **Retry-After.** The Throttled exception implements `IRetryAfterHint`. NimBus waits for the
+  longer of the policy delay and the hint, capped at the policy's `MaxDelay`. The hint only
+  stretches a delay; the rule still decides whether there is a retry at all.
+  - Set `MaxDelay` above the longest Retry-After the system sends, or the cap cuts the wait short.
 - **Non-idempotent writes**: only retry what certainly did not commit (`12`).
 
 ## Tests
@@ -67,22 +72,27 @@ subscriber.ConfigureRetryPolicies(policies => policies
 `ResilienceTests` in the template:
 - throttled and unavailable failures get exponential policies;
 - **a rejection whose body mentions "429" and "503" gets none** (the decoy);
+- an unclassified exception gets none;
+- the throttled exception exposes its Retry-After as `IRetryAfterHint`;
 - a missing reference gets its short policy;
 - the total retry budget is bigger than 3 break durations.
 
-Use the real matched text: `$"{inner} {new EventContextHandlerException(inner)}"`.
+Look policies up with the exception NimBus sees, the handler's exception inside the pipeline's
+wrapper: `policies.GetRetryPolicy(eventTypeId, new EventContextHandlerException(inner))`.
 
 ## Anti-patterns
 
-- `AddExceptionRule("429", …)`.
-- `AddExceptionRule("Exception", …)`, which matches everything.
+- `AddExceptionRule("429", …)`, or any other text rule.
+- `AddExceptionRule<Exception>(…)`, which matches everything.
+- A Throttled exception that drops the server's Retry-After.
 - A retry loop in the handler.
 - `ServiceClient` defaults (5 × 70 s) under a 5-minute lock.
 - `.Result` inside a Polly predicate.
 
 ## Provenance
 
-- Exception-name rules with bounded jitter and no default policy (NimBus BC sample).
+- Typed rules with bounded jitter, a Retry-After hint and no default policy (NimBus BC sample,
+  NimBus 5.6.0 source).
 - Lock renewal raised to 10 minutes after the ServiceClient retry outlived it, and a per-message
   retry budget (production CE and F&O adapters).
 - Adapters without any retry policy needed an operator for every 429 (production CRM adapters).

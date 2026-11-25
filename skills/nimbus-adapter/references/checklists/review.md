@@ -55,8 +55,8 @@ brackets; adjust it to the actual impact.
   NimBus stores the text unmasked in the audit trail. See `patterns/20` and `patterns/25`.
 - [ ] **[Critical]** **A malformed success is never "not found".** A `200` with `null`, `{}` or no
   `value` collection must throw (Unavailable), not lead to a create. See `patterns/20`.
-- [ ] **[High]** **Retry rules are keyed on full type names plus a colon**, and no untrusted text can
-  name a retried exception type. See `patterns/21`.
+- [ ] **[High]** **Retry rules match exception types** (`AddExceptionRule<TException>`), never
+  text, and the throttled exception carries Retry-After as `IRetryAfterHint`. See `patterns/21`.
 - [ ] **[High]** **The client is a singleton or comes from the factory, with async APIs only.**
   - Not built per message, and no sync-over-async (`.Result`, `.Wait()`).
   - Dataverse: one `ServiceClient`, async methods. See the system pack.
@@ -82,7 +82,7 @@ brackets; adjust it to the actual impact.
 
 ## Resilience
 
-- [ ] **[High]** **Retry rules use exception type names**, with exponential backoff and bounded
+- [ ] **[High]** **Retry rules match exception types**, with exponential backoff and bounded
   jitter for Throttled and Unavailable. They are never keyed on status codes or message text. See
   `patterns/21`.
 - [ ] **[Medium]** **No default retry policy unless deliberate.** A rejection should block the
