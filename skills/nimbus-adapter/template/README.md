@@ -16,7 +16,6 @@ flow live in [`docs/flows/`](docs/flows/), and the TDD and events catalog in [`d
 | `src/TemplateAdapter.Simulator` | A local stand-in for the ExternalSystem API with fault injection, plus an upstream driver that publishes sample events |
 | `src/TemplateAdapter.Provisioner` | Applies the Service Bus topology from the catalog (local runs) |
 | `src/TemplateAdapter.AppHost` | Aspire: provisioner, simulator and adapter in one command |
-| `src/TemplateAdapter.ServiceDefaults` | OpenTelemetry, health checks, service discovery. No HttpClient retry handler on purpose |
 | `tests/TemplateAdapter.Tests` | Client classification, retry rules, circuit breaker, handlers, pipeline, catalog and architecture tests |
 | `deploy/` | Bicep for the Container App, per-environment parameters, the pipeline deploy stage |
 | `azure-pipelines.yml` | Build, test (gate), image, then deploy dev, test and prod |

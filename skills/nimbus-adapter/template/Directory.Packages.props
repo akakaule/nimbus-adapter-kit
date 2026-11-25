@@ -15,7 +15,7 @@
 <!--#if (Inbox) -->
     <PackageVersion Include="Akaule.NimBus.Inbox.SqlServer" Version="$(NimBusVersion)" />
 <!--#endif -->
-    <PackageVersion Include="Akaule.NimBus.OpenTelemetry" Version="$(NimBusVersion)" />
+    <PackageVersion Include="Akaule.NimBus.ServiceDefaults" Version="$(NimBusVersion)" />
     <PackageVersion Include="Akaule.NimBus.Testing" Version="$(NimBusVersion)" />
   </ItemGroup>
 
@@ -30,22 +30,12 @@
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.11.0" />
   </ItemGroup>
 
   <ItemGroup Label="Local AppHost">
 <!--#if (Inbox) -->
     <PackageVersion Include="Aspire.Hosting.SqlServer" Version="$(AspireVersion)" />
 <!--#endif -->
-  </ItemGroup>
-
-  <ItemGroup Label="Observability">
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.1" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.1" />
-    <PackageVersion Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.6.0" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">

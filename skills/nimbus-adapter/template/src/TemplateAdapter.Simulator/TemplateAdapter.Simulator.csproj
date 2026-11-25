@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="Akaule.NimBus.SDK" />
+    <PackageReference Include="Akaule.NimBus.ServiceDefaults" />
     <PackageReference Include="Aspire.Azure.Messaging.ServiceBus" />
   </ItemGroup>
 
@@ -13,7 +14,6 @@
 <!--#if (!ContractsPackage) -->
     <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
 <!--#endif -->
-    <ProjectReference Include="..\TemplateAdapter.ServiceDefaults\TemplateAdapter.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>
