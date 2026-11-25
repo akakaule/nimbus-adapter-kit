@@ -1,13 +1,20 @@
-#if (Inbox)
-using NimBus.Core.Inbox;
+#if (InboxTable)
+using Azure.Data.Tables;
+using Azure.Identity;
 #endif
 using NimBus.Core.Extensions;
 using NimBus.Core.Pipeline;
-#if (Inbox)
+#if (InboxSql)
 using NimBus.Inbox.SqlServer;
+#endif
+#if (InboxTable)
+using NimBus.Inbox.AzureTables;
 #endif
 using NimBus.SDK.Extensions;
 using TemplateAdapter.Adapter.Clients;
+#if (InboxTable)
+using TemplateAdapter.Adapter.Inbox;
+#endif
 #if (IngressEnabled)
 using TemplateAdapter.Adapter.Ingress;
 #endif
@@ -32,12 +39,21 @@ public static class AdapterComposition
     /// <summary>Connection name of the Service Bus namespace (<c>ConnectionStrings:servicebus</c>).</summary>
     public const string ServiceBusConnectionName = "servicebus";
 
-#if (Inbox)
+#if (InboxSql)
     /// <summary>
     /// Connection name of the integration database (<c>ConnectionStrings:integration</c>) that holds
     /// the inbox. It is the integration platform's own database, never the external system's.
     /// </summary>
     public const string IntegrationDatabaseConnectionName = "integration";
+
+#endif
+#if (InboxTable)
+    /// <summary>
+    /// Connection name of the Table Storage that holds the inbox (<c>ConnectionStrings:inbox</c>): the
+    /// account's table endpoint (<c>https://…table.core.windows.net</c>) in Azure, where the adapter
+    /// signs in with its identity, or a connection string for the local storage emulator.
+    /// </summary>
+    public const string InboxConnectionName = "inbox";
 
 #endif
     /// <summary>Registers the NimBus subscriber, the ExternalSystem client and the hosted services.</summary>
@@ -54,11 +70,24 @@ public static class AdapterComposition
         externalSystem.Validate();
 
         builder.Services.AddExternalSystemClient(externalSystem);
-#if (Inbox)
+#if (InboxSql)
 
         var integrationDb = builder.Configuration.GetConnectionString(IntegrationDatabaseConnectionName)
             ?? throw new InvalidOperationException($"ConnectionStrings:{IntegrationDatabaseConnectionName} is required for the inbox.");
         builder.Services.AddNimBusSqlServerInbox(integrationDb);
+#endif
+#if (InboxTable)
+
+        var inboxConnection = builder.Configuration.GetConnectionString(InboxConnectionName)
+            ?? throw new InvalidOperationException($"ConnectionStrings:{InboxConnectionName} is required for the inbox.");
+        var inboxTable = CreateInboxTable(inboxConnection, adapter.InboxTableName);
+        builder.Services.AddNimBusAzureTableInbox(inboxTable);
+        if (!IsTableEndpoint(inboxConnection))
+        {
+            // Local storage emulator only. In Azure the Bicep creates the table, and the adapter's
+            // role is scoped to that table, so it could not create one.
+            builder.Services.AddHostedService(_ => new LocalInboxTableCreator(inboxTable));
+        }
 #endif
 
         builder.Services.AddNimBus(nimbus =>
@@ -127,4 +156,18 @@ public static class AdapterComposition
         subscriber.ConfigureRetryPolicies(policies => ExternalSystemResilience.ConfigureRetries(policies, resilience));
         subscriber.WithCircuitBreaker(circuit => ExternalSystemResilience.ConfigureCircuitBreaker(circuit, resilience));
     }
+#if (InboxTable)
+
+    /// <summary>
+    /// The inbox table client: identity-based for a table endpoint URL (Azure), key-based for a
+    /// connection string (the local storage emulator).
+    /// </summary>
+    internal static TableClient CreateInboxTable(string connection, string tableName) =>
+        IsTableEndpoint(connection)
+            ? new TableClient(new Uri(connection), tableName, new DefaultAzureCredential())
+            : new TableClient(connection, tableName);
+
+    private static bool IsTableEndpoint(string connection) =>
+        Uri.TryCreate(connection, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
+#endif
 }

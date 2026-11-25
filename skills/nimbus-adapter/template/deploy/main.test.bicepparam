@@ -11,7 +11,10 @@ param imageTag = readEnvironmentVariable('IMAGE_TAG', 'latest')
 param externalSystemBaseUrl = '<https://externalsystem-test.example>'
 param externalSystemScope = ''
 param applicationInsightsConnectionString = ''
-//#if (Inbox)
+//#if (InboxSql)
 param keyVaultName = '<key-vault-test>'
 param integrationDatabaseSecretName = 'integration-db-connection-string'
+//#endif
+//#if (InboxTable)
+param inboxStorageAccountName = '<stinboxtest>'
 //#endif

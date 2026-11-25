@@ -14,8 +14,11 @@
   <ItemGroup>
     <PackageReference Include="Akaule.NimBus.SDK" />
     <PackageReference Include="Akaule.NimBus.ServiceDefaults" />
-<!--#if (Inbox) -->
+<!--#if (InboxSql) -->
     <PackageReference Include="Akaule.NimBus.Inbox.SqlServer" />
+<!--#endif -->
+<!--#if (InboxTable) -->
+    <PackageReference Include="Akaule.NimBus.Inbox.AzureTables" />
 <!--#endif -->
     <PackageReference Include="Aspire.Azure.Messaging.ServiceBus" />
     <PackageReference Include="Azure.Identity" />

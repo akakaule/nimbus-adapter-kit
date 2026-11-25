@@ -12,10 +12,15 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 var servicebus = builder.AddConnectionString("servicebus");
-#if (Inbox)
+#if (InboxSql)
 
 // The integration platform's own database (the adapter's inbox), never the external system's.
 var integration = builder.AddSqlServer("sql").AddDatabase("integration");
+#endif
+#if (InboxTable)
+
+// The adapter's inbox table, in the Azurite storage emulator.
+var inbox = builder.AddAzureStorage("storage").RunAsEmulator().AddTables("inbox");
 #endif
 
 // Projects are added by path so the resource names stay stable whatever the solution is called.
@@ -30,9 +35,13 @@ var simulator = builder.AddProject("externalsystem-simulator", "../TemplateAdapt
 builder.AddProject("adapter", "../TemplateAdapter.Adapter/TemplateAdapter.Adapter.csproj")
     .WithReference(servicebus)
     .WithReference(simulator)
-#if (Inbox)
+#if (InboxSql)
     .WithReference(integration)
     .WaitFor(integration)
+#endif
+#if (InboxTable)
+    .WithReference(inbox)
+    .WaitFor(inbox)
 #endif
     .WaitFor(simulator)
     .WaitForCompletion(provisioner);

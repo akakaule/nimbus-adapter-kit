@@ -35,6 +35,7 @@ $cases = @(
     @{ Name = 'no-inbox'; Args = @('-n', 'Contoso.Crm', '--SystemName', 'Dataverse', '--Inbox', 'false') }
     @{ Name = 'dotted-name'; Args = @('-n', 'Fabrikam.Integration.Finance', '--SystemName', 'FinanceOperations') }
     @{ Name = 'ingress-custom-endpoint'; Args = @('-n', 'Contoso.Bc', '--SystemName', 'BusinessCentral', '--Ingress', 'true', '--Endpoint', 'ErpEndpoint') }
+    @{ Name = 'table-inbox'; Args = @('-n', 'Contoso.Fo', '--SystemName', 'FinanceOperations', '--InboxStore', 'table', '--Ingress', 'true') }
 )
 
 # Text that must never reach a generated solution: the template's own tokens and placeholders.

@@ -30,10 +30,11 @@
   </PropertyGroup>
 <!--#if (false) -->
 
-  <!-- Template source only (removed by dotnet new): switches every template option on, so the
-       template folder itself compiles and its tests run with all features. -->
+  <!-- Template source only (removed by dotnet new): switches the template options on, so the
+       template folder itself compiles and its tests run. The inbox is the SQL Server one here; the
+       Azure Table variant (InboxTable) is compiled and tested by eng/instantiate-matrix.ps1. -->
   <PropertyGroup>
-    <DefineConstants>$(DefineConstants);Inbox;IngressEnabled</DefineConstants>
+    <DefineConstants>$(DefineConstants);Inbox;InboxSql;IngressEnabled</DefineConstants>
   </PropertyGroup>
 <!--#endif -->
 </Project>

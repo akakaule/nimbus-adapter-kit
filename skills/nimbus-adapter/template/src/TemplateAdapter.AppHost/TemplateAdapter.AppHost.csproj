@@ -7,10 +7,16 @@
     <UserSecretsId>5d7a3b1e-2c4f-4b8a-9e61-0f3c2a9d7e45</UserSecretsId>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
-<!--#if (Inbox) -->
+<!--#if (InboxSql) -->
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.SqlServer" />
+  </ItemGroup>
+<!--#endif -->
+<!--#if (InboxTable) -->
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" />
   </ItemGroup>
 <!--#endif -->
 

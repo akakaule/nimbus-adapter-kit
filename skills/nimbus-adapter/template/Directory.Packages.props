@@ -12,8 +12,11 @@
     <PackageVersion Include="Akaule.NimBus.Core" Version="$(NimBusVersion)" />
     <PackageVersion Include="Akaule.NimBus.SDK" Version="$(NimBusVersion)" />
     <PackageVersion Include="Akaule.NimBus.ServiceBus" Version="$(NimBusVersion)" />
-<!--#if (Inbox) -->
+<!--#if (InboxSql) -->
     <PackageVersion Include="Akaule.NimBus.Inbox.SqlServer" Version="$(NimBusVersion)" />
+<!--#endif -->
+<!--#if (InboxTable) -->
+    <PackageVersion Include="Akaule.NimBus.Inbox.AzureTables" Version="$(NimBusVersion)" />
 <!--#endif -->
     <PackageVersion Include="Akaule.NimBus.ServiceDefaults" Version="$(NimBusVersion)" />
     <PackageVersion Include="Akaule.NimBus.Testing" Version="$(NimBusVersion)" />
@@ -33,8 +36,11 @@
   </ItemGroup>
 
   <ItemGroup Label="Local AppHost">
-<!--#if (Inbox) -->
+<!--#if (InboxSql) -->
     <PackageVersion Include="Aspire.Hosting.SqlServer" Version="$(AspireVersion)" />
+<!--#endif -->
+<!--#if (InboxTable) -->
+    <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="$(AspireVersion)" />
 <!--#endif -->
   </ItemGroup>
 
