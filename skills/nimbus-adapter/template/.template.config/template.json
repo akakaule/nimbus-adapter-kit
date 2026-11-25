@@ -145,9 +145,9 @@
     "NimBusVersion": {
       "type": "parameter",
       "datatype": "text",
-      "defaultValue": "4.2.0",
+      "defaultValue": "5.6.0",
       "description": "The Akaule.NimBus.* package version. Match the NimBus version your Resolver and WebApp run.",
-      "replaces": "4.2.0",
+      "replaces": "5.6.0",
       "onlyIf": [
         {
           "after": "<NimBusVersion>"
