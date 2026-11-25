@@ -114,6 +114,8 @@ emulator.MapPost("/accounts/{accountKey}/changed", async (string accountKey, Sim
 {
     if (services.GetService<ServiceBusClient>() is not { } serviceBus)
         return Results.Problem("Service Bus is not configured (ConnectionStrings:servicebus).", statusCode: StatusCodes.Status503ServiceUnavailable);
+    if (!app.Configuration.GetValue("Ingress:Enabled", true))
+        return Results.Problem("Ingress is switched off: the local Service Bus emulator has no queues. Set a namespace of your own in the AppHost's user secrets to run the ingress path (see README.md).", statusCode: StatusCodes.Status503ServiceUnavailable);
 
     var created = !state.Accounts.ContainsKey(accountKey);
     state.Accounts[accountKey] = body with { AccountKey = accountKey };

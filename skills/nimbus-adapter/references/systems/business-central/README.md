@@ -81,7 +81,7 @@ dotnet user-secrets set "ExternalSystem:Scope" "https://api.businesscentral.dyna
 
 ## Change detection (BC → bus)
 
-The options are ranked. Whichever you choose, the event you publish carries a deterministic MessageId, and every subscriber uses `UseInbox`. In NimBus 4.2.0 you pass the MessageId with `IPublisherClient.Publish(@event, sessionId, correlationId, messageId)`.
+The options are ranked. Whichever you choose, the event you publish carries a deterministic MessageId, and every subscriber uses `UseInbox`. In NimBus 5.6.0 you pass the MessageId with `IPublisherClient.Publish(@event, sessionId, correlationId, messageId)`.
 
 ### 1. Webhooks: a thin notification, a re-read, a deterministic MessageId
 
@@ -329,8 +329,8 @@ The template's `HttpFailure` classifies failures by HTTP status. This table adds
 
 **Retry-After**
 
-- The template keeps the hint on `ExternalSystemThrottledException.RetryAfter` for diagnostics.
-- The retry delay itself comes from the policy (`ThrottledBaseDelaySeconds`, doubling up to `ThrottledMaxDelaySeconds`).
+- The client reads `Retry-After` into `ExternalSystemThrottledException.RetryAfter`, which implements NimBus's `IRetryAfterHint`.
+- NimBus waits for the longer of the policy delay (`ThrottledBaseDelaySeconds`, doubling) and that hint, capped at `ThrottledMaxDelaySeconds` (NimBus 5.6.0 source).
 - The NimBus sample keeps the same split: the client reads `Retry-After`, and broker-scheduled retries do the waiting **[proven in the NimBus sample]**.
 
 **Update windows and the circuit breaker**

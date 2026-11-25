@@ -2,7 +2,29 @@
 
 ## 0.2.0 (unreleased)
 
-Fixes from a cross-model (Codex) review of 0.1.0, plus the template options it found missing.
+Fixes from a cross-model (Codex) review of 0.1.0, the template options it found missing, and the
+move to NimBus 5.6.
+
+- **NimBus 5.6.0** (was 4.2.0), Aspire 13.6.5. The 4.2.0 pins no longer restored in Release: NuGet
+  audit flags packages they bring in. The template now needs NimBus 4.3 or later.
+- **Typed retry rules.** `AddExceptionRule<TException>` replaces the `"<full type name>:"` text
+  keys, and the throttled exception implements `IRetryAfterHint`, so a retry never comes sooner
+  than the server's Retry-After.
+- **`Akaule.NimBus.ServiceDefaults`** replaces the template's own ServiceDefaults project.
+- **`--InboxStore table`**: the inbox in Azure Table Storage (NimBus 5.5), with the storage
+  account, the table and a table-scoped role in the Bicep, and the storage emulator locally.
+- **Local stack.** The AppHost runs the NimBus Service Bus emulator, Resolver and WebApp from
+  packages, so the audit trail and resubmit work locally without a Service Bus namespace.
+  - Set `ConnectionStrings:servicebus` in user secrets to use a namespace of your own instead.
+  - The emulator has no queues: with `--Ingress true` the ingress worker is off on the emulator
+    (`Ingress:Enabled`).
+  - The simulator now declares its HTTP endpoint, so the adapter reaches it through service
+    discovery.
+- **Template engine fix.** A conditional block no longer ends `TestDoubles.cs`: the .NET 11 SDK's
+  template engine left a stray `#endif` there in adapters generated without ingress.
+- **Patterns**: routing keys (`01`, preview in NimBus), choosing the inbox store (`05`), the
+  three-argument `Handle` for Functions (`29`), typed rules and Retry-After (`20`, `21`).
+- **Links**: the NimBus repo is `context-and-oss/NimBus`.
 
 - **Licence**: MIT.
 - **Template options**:
@@ -15,8 +37,8 @@ Fixes from a cross-model (Codex) review of 0.1.0, plus the template options it f
 - **No personal data in failure texts.** NimBus stores exception messages unmasked in the audit
   trail. Failure texts now carry operation, method, path (no query), status and a sanitized
   vendor error code, but no response body.
-- **Precise retry rules.** They are keyed on `<full type name>:`. Error codes can't contain `:`,
-  so vendor text can't steer a rejection into a retry rule.
+- **Sanitized error codes.** A vendor error code is kept only if it looks like one (letters,
+  digits, `_ . -`, at most 64 characters); free text is dropped.
 - **Malformed successes.** A `200` that isn't the expected shape is Unavailable, never "not found"
   (template client and all three snippets).
 - **Token failures.** A failure to get a token is classified as Unavailable, with distinct

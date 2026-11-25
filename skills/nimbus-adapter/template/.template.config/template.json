@@ -130,7 +130,31 @@
       "type": "parameter",
       "datatype": "bool",
       "defaultValue": "true",
-      "description": "Deduplicate redeliveries with the NimBus SQL Server inbox (needs a SQL database for the integration platform)."
+      "description": "Deduplicate redeliveries with the NimBus inbox. InboxStore chooses where it is kept."
+    },
+    "InboxStore": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "sql",
+      "description": "Where the inbox is kept (ignored with --Inbox false).",
+      "choices": [
+        {
+          "choice": "sql",
+          "description": "SQL Server: a table in the integration platform's database."
+        },
+        {
+          "choice": "table",
+          "description": "Azure Table Storage: one table in a storage account, for adapters without a SQL database (needs NimBus 5.5 or later)."
+        }
+      ]
+    },
+    "InboxSql": {
+      "type": "computed",
+      "value": "(Inbox && InboxStore == \"sql\")"
+    },
+    "InboxTable": {
+      "type": "computed",
+      "value": "(Inbox && InboxStore == \"table\")"
     },
     "Ingress": {
       "type": "parameter",
@@ -145,9 +169,9 @@
     "NimBusVersion": {
       "type": "parameter",
       "datatype": "text",
-      "defaultValue": "4.2.0",
+      "defaultValue": "5.6.0",
       "description": "The Akaule.NimBus.* package version. Match the NimBus version your Resolver and WebApp run.",
-      "replaces": "4.2.0",
+      "replaces": "5.6.0",
       "onlyIf": [
         {
           "after": "<NimBusVersion>"
@@ -175,6 +199,12 @@
             "src/TemplateAdapter.Adapter/Ingress/**",
             "src/TemplateAdapter.Contracts/ExternalSystem/**",
             "tests/TemplateAdapter.Tests/IngressProcessorTests.cs"
+          ]
+        },
+        {
+          "condition": "(!InboxTable)",
+          "exclude": [
+            "src/TemplateAdapter.Adapter/Inbox/**"
           ]
         },
         {

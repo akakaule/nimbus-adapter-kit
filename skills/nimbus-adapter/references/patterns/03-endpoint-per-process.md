@@ -29,8 +29,9 @@ builder.Services.AddNimBusDeferredProcessorHostedService(EndpointName);   // rep
 - **Priority lanes.** If urgent and bulk traffic share a system, use a second endpoint (for
   example `<System>LowEndpoint`) in its own process with fewer sessions. Don't use one endpoint
   with two receivers.
-- **Developer isolation.** Developers use their own namespace. Never attach a local adapter to a
-  subscription a deployed adapter consumes: they compete for messages.
+- **Developer isolation.** Developers use the local NimBus Service Bus emulator (the template's
+  AppHost starts it) or a namespace of their own. Never attach a local adapter to a subscription
+  a deployed adapter consumes: they compete for messages.
 - Topology is created by the provisioner (`ServiceBusTopologyProvisioner`) or
   `nb topology apply`. Adapters never create topics or subscriptions.
 

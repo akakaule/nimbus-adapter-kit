@@ -57,6 +57,21 @@ public class BcCustomerUpdated : Event            // producer prefix: Bc, D365, 
   (`PlatformValidation.ValidateCommandConsumers`). **Replies** are plain DTO classes, not events.
 - **Evolution**: only additive, optional properties. Anything else is a new event (a `V2` suffix)
   that consumers handle alongside the old one until every producer has moved.
+- **Routing keys** (NimBus 4.13 and later, still a preview): use them when several instances of
+  one system consume the same event type and a payload field says which instance it is for (two
+  ERP companies, one adapter each).
+  - The event names the field: `[RoutingKey(nameof(ErpInstance))]`. The property is a `string`,
+    never `[Sensitive]`; a key is 1 to 64 characters of `A-Z a-z 0-9 _ . -`, case-sensitive.
+  - Each endpoint declares what it takes: `Consumes<T>("01", "02")`, or `ConsumesUnmatched<T>()`
+    for messages with no key or a key nobody claims.
+  - `nb topology apply` refuses a keyed event type without an unmatched consumer, unless the
+    event says `DropUnmatched = true`.
+  - The subscriber dead-letters a message whose key it does not accept. That check runs when the
+    adapter registers the `IPlatform`; otherwise call `subscriber.EnforceRoutingKeys<TEndpoint>()`.
+  - A routing key chooses the **consumer**; the session key (`02`) still orders the messages.
+    Don't replace one with the other.
+  - Roll out in NimBus's order: upgrade everything first, then publishers, then consumers and
+    the topology (NimBus `docs/routing-keys.md`).
 
 ## Per system
 

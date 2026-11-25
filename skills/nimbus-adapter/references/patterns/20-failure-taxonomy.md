@@ -16,7 +16,7 @@ not indicate success: 400` with nothing to act on.
 
 | Answer | Exception | NimBus treatment |
 |---|---|---|
-| 429 Too Many Requests | `<System>ThrottledException(message, RetryAfter)` | Retried with exponential backoff; excluded from the breaker |
+| 429 Too Many Requests | `<System>ThrottledException(message, RetryAfter)`, implementing `IRetryAfterHint` | Retried with exponential backoff, never sooner than Retry-After; excluded from the breaker |
 | 408, 502, 503, 504, 5xx, timeout, no connection | `<System>UnavailableException` | Retried; **counted by the breaker** |
 | Any other 4xx | `<System>RejectedException(message, status, errorCode)` | Not retried: the session blocks for an operator; excluded from the breaker |
 | Expected non-success answers (404 on read, an explicit "owned by…" error code, duplicate key on create) | **Not exceptions**: `null`, an outcome enum, or success | The handler decides |
@@ -59,7 +59,7 @@ the three exception types.
 - **Name rules**:
   - Exception names must not contain "Validation", "Serialization" or "Deserialization". The
     opt-in permanent-failure classifier dead-letters those.
-  - The full type names *are* the retry-rule keys (`21`).
+  - The retry rules match these types (`21`), so keep one type per row of the table.
 - **Caller cancellation (shutdown) propagates unchanged.** Only timeouts become Unavailable.
 
 ## Tests

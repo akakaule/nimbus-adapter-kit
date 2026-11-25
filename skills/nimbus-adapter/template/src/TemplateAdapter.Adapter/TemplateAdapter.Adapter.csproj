@@ -13,8 +13,12 @@
 
   <ItemGroup>
     <PackageReference Include="Akaule.NimBus.SDK" />
-<!--#if (Inbox) -->
+    <PackageReference Include="Akaule.NimBus.ServiceDefaults" />
+<!--#if (InboxSql) -->
     <PackageReference Include="Akaule.NimBus.Inbox.SqlServer" />
+<!--#endif -->
+<!--#if (InboxTable) -->
+    <PackageReference Include="Akaule.NimBus.Inbox.AzureTables" />
 <!--#endif -->
     <PackageReference Include="Aspire.Azure.Messaging.ServiceBus" />
     <PackageReference Include="Azure.Identity" />
@@ -28,7 +32,6 @@
 #else -->
     <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
 <!--#endif -->
-    <ProjectReference Include="..\TemplateAdapter.ServiceDefaults\TemplateAdapter.ServiceDefaults.csproj" />
   </ItemGroup>
 
   <ItemGroup>

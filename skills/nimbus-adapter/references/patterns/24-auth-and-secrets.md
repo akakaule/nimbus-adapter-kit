@@ -22,6 +22,8 @@ Found in production reviews:
 - **Entra tokens for the external system.** Use `Azure.Identity` credentials (managed identity in
   Azure, the developer's sign-in locally) through the template's `BearerTokenHandler`, with the
   scope from configuration. The credential caches and refreshes tokens; don't write a token cache.
+  NimBus's `Akaule.NimBus.Extensions.Http` has `AddAzureBearerToken(scopes)` for the same job; the
+  template keeps its own handler because it also classifies a token failure as Unavailable (`20`).
   Where the system needs an app registration with a secret or certificate (check the pack), keep
   the secret in Key Vault and use `ClientSecretCredential` / `ClientCertificateCredential`.
 - **Least privilege in the target**: a dedicated integration user or application user with only

@@ -40,13 +40,23 @@ param externalSystemScope string = ''
 
 @description('Application Insights connection string (not a secret, but kept out of the template).')
 param applicationInsightsConnectionString string = ''
-//#if (Inbox)
+//#if (InboxSql)
 
 @description('Key Vault (existing, same resource group, Azure RBAC permission model) that holds the inbox connection string.')
 param keyVaultName string
 
 @description('Name of the Key Vault secret holding the integration database connection string (the inbox).')
 param integrationDatabaseSecretName string = 'integration-db-connection-string'
+//#endif
+//#if (InboxTable)
+
+@description('Storage account for the inbox table (created here). 3-24 lower-case letters and digits, globally unique.')
+@minLength(3)
+@maxLength(24)
+param inboxStorageAccountName string
+
+@description('The table that holds the inbox receipts (created here).')
+param inboxTableName string = 'NimBusInbox'
 //#endif
 
 //#if (IngressEnabled)
@@ -71,8 +81,11 @@ var resourceSuffix = '${adapterName}-${environmentName}'
 var serviceBusDataReceiver = '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
 var serviceBusDataSender = '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
 var acrPull = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-//#if (Inbox)
+//#if (InboxSql)
 var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
+//#endif
+//#if (InboxTable)
+var storageTableDataContributor = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 //#endif
 
 resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' existing = {
@@ -101,9 +114,38 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing =
   name: containerRegistryName
 }
 
-//#if (Inbox)
+//#if (InboxSql)
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
+}
+
+//#endif
+//#if (InboxTable)
+// Holds only the inbox: hashes of handled MessageIds and when they were handled. No account keys:
+// the adapter signs in with its identity.
+resource inboxStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: inboxStorageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource inboxTableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
+  parent: inboxStorage
+  name: 'default'
+}
+
+resource inboxTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: inboxTableService
+  name: inboxTableName
 }
 
 //#endif
@@ -143,7 +185,20 @@ resource pullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-//#if (Inbox)
+//#if (InboxTable)
+// Read and write inbox receipts in this one table, nothing else in the account.
+resource inboxTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(inboxTable.id, identity.id, storageTableDataContributor)
+  scope: inboxTable
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributor)
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+//#endif
+//#if (InboxSql)
 // The app reads the inbox connection string from Key Vault at runtime with its own identity, so
 // the secret never passes through the deployment (no vault deployment permission needed).
 resource secretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -177,7 +232,7 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
           identity: identity.id
         }
       ]
-//#if (Inbox)
+//#if (InboxSql)
       secrets: [
         {
           name: 'integration-db'
@@ -201,8 +256,13 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
             { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
             // A namespace host name (no key): the Aspire client then authenticates with the identity.
             { name: 'ConnectionStrings__servicebus', value: '${serviceBus.name}.servicebus.windows.net' }
-//#if (Inbox)
+//#if (InboxSql)
             { name: 'ConnectionStrings__integration', secretRef: 'integration-db' }
+//#endif
+//#if (InboxTable)
+            // The table endpoint (no key): the adapter authenticates with the identity.
+            { name: 'ConnectionStrings__inbox', value: inboxStorage.properties.primaryEndpoints.table }
+            { name: 'Adapter__InboxTableName', value: inboxTable.name }
 //#endif
             { name: 'ExternalSystem__BaseUrl', value: externalSystemBaseUrl }
             { name: 'ExternalSystem__Scope', value: externalSystemScope }
@@ -255,8 +315,11 @@ resource adapter 'Microsoft.App/containerApps@2025-07-01' = {
     receiverRole
     senderRole
     pullRole
-//#if (Inbox)
+//#if (InboxSql)
     secretsUserRole
+//#endif
+//#if (InboxTable)
+    inboxTableRole
 //#endif
   ]
 }

@@ -38,12 +38,12 @@ Report the checks you ran. Never declare work done on a Debug build.
   outcomes (for example "owned by ExternalSystem") are results, not exceptions.
 - **Retries belong to NimBus.** Change them only in `Resilience/ExternalSystemResilience.cs`.
   - Never add an HttpClient resilience handler, Polly or a retry loop around client calls.
-  - Never key a retry rule on a status code or on message text: use the exception type name.
+  - Never key a retry rule on a status code or on message text: use `AddExceptionRule<TException>`.
 - **The circuit breaker counts outages only.** New data-problem exception types must be excluded
   in `ConfigureCircuitBreaker`.
 - **Topology is created only by the provisioner / `nb topology apply`.** The adapter never creates
   topics or subscriptions.
-- **No secrets in the repo.** Connection strings come from user secrets locally, and from Key
+- **No secrets in the repo.** Connection strings come from the AppHost or user secrets locally, and from Key
   Vault references in Azure.
 - **Tests come with every change.**
   - A new client call gets classification tests.

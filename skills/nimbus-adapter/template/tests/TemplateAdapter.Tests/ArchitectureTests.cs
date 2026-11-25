@@ -94,18 +94,57 @@ public sealed class ArchitectureTests
         return endpoint;
     }
 
-    private static IHost BuildHost()
+#if (InboxTable)
+    [TestMethod]
+    public void TheInboxTable_UsesTheIdentityInAzure_AndTheEmulatorLocally()
+    {
+        // A table endpoint URL means "sign in with the identity"; anything else is a connection
+        // string. Only the emulator gets the hosted service that creates the table.
+        var azure = AdapterComposition.CreateInboxTable("https://stinbox.table.core.windows.net", "NimBusInbox");
+        var local = AdapterComposition.CreateInboxTable("UseDevelopmentStorage=true", "NimBusInbox");
+
+        Assert.AreEqual("stinbox", azure.AccountName);
+        Assert.AreEqual("devstoreaccount1", local.AccountName);
+        Assert.AreEqual("NimBusInbox", local.Name);
+
+        using var host = BuildHost();
+        var hosted = host.Services.GetServices<IHostedService>().Select(s => s.GetType().Name).ToList();
+        CollectionAssert.Contains(hosted, "LocalInboxTableCreator");
+    }
+
+#endif
+#if (IngressEnabled)
+    [TestMethod]
+    public void Ingress_CanBeSwitchedOff_WhereThereIsNoIngressQueue()
+    {
+        // The local NimBus emulator has no queues, so the AppHost sets Ingress:Enabled to false
+        // there. The rest of the adapter must still start.
+        using var host = BuildHost(new() { ["Ingress:Enabled"] = "false" });
+
+        var hostedServices = host.Services.GetServices<IHostedService>().Select(s => s.GetType().Name).ToList();
+
+        CollectionAssert.DoesNotContain(hostedServices, "IngressWorker");
+        CollectionAssert.Contains(hostedServices, "NimBusReceiverHostedService");
+    }
+
+#endif
+    private static IHost BuildHost(Dictionary<string, string?>? overrides = null)
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = Environments.Development });
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             // Never contacted: the host is built, not started.
             ["ConnectionStrings:servicebus"] = "Endpoint=sb://architecture-tests.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=dGVzdA==",
-#if (Inbox)
+#if (InboxSql)
             ["ConnectionStrings:integration"] = "Server=localhost;Database=integration;Integrated Security=true;TrustServerCertificate=true",
+#endif
+#if (InboxTable)
+            ["ConnectionStrings:inbox"] = "UseDevelopmentStorage=true",
 #endif
             ["ExternalSystem:BaseUrl"] = "http://externalsystem.test",
         });
+        if (overrides is not null)
+            builder.Configuration.AddInMemoryCollection(overrides);
         builder.AddAdapter();
         return builder.Build();
     }

@@ -37,6 +37,9 @@ decisions: ask the user unless the brief already answers them.
 2. **Which event, and is it new?**
    - Reuse an existing catalog event when its meaning fits exactly.
    - A new event follows `patterns/01`. Changing an existing one is additive only.
+   - Several instances of the target system (companies, countries) with one adapter each: decide
+     whether a routing key selects the consumer (`patterns/01`), instead of every adapter
+     filtering in its handler.
 3. **Session key** (`patterns/02`).
    - Default: the aggregate's own id, so changes to one record stay in order.
    - Key a child on its parent only if the child's write needs the parent's last state. The cost:

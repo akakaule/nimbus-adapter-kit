@@ -520,7 +520,7 @@ With NimBus owning retries:
   `ArchitectureTests` enforce that.
 - With `ServiceClient`, set `MaxRetryCount` to 0 or 1 (verify that 0 disables it in your version),
   or prove that `MaxRetryCount × max(RetryPauseTime, Retry-After) + call time` fits inside
-  `NimBusReceiverOptions.MaxAutoLockRenewalDuration`. The default is 5 minutes in NimBus 4.2.0.
+  `NimBusReceiverOptions.MaxAutoLockRenewalDuration`. The default is 5 minutes in NimBus 5.6.0.
 - Production raised the lock renewal to 10 minutes as the stop-gap. **[proven in production]**
 
 ## Concurrency

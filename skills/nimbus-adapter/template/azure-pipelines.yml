@@ -20,7 +20,7 @@ pr:
 variables:
   buildConfiguration: Release
   # Keep equal to <NimBusVersion> in Directory.Packages.props.
-  nimbusVersion: '4.2.0'
+  nimbusVersion: '5.6.0'
   # The NimBus solution id (as used by `nb infra apply`), the registry and the image name.
   solutionId: '<nimbus-solution-id>'
   containerRegistryName: '<containerregistry>'
