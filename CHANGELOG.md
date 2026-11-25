@@ -5,8 +5,11 @@
 Fixes from a cross-model (Codex) review of 0.1.0, the template options it found missing, and the
 move to NimBus 5.6.
 
-- **NimBus 5.6.0** (was 4.2.0), Aspire 13.6.5. The 4.2.0 pins no longer restored in Release: NuGet
-  audit flags packages they bring in. The template now needs NimBus 4.3 or later.
+- **NimBus 5.6.0** (was 4.2.0). The 4.2.0 pins no longer restored in Release: NuGet audit flags
+  packages they bring in. The template now needs NimBus 4.3 or later.
+- **Aspire 17.0.0** (was 13.5.4). The AppHost is a plain `Microsoft.NET.Sdk` project with the
+  `Aspire.Hosting.AppHost` and `Aspire.Hosting.Dotnet` packages, and adds the adapter, provisioner
+  and simulator with `AddDotnetProject`; Aspire 17 retires `Aspire.AppHost.Sdk` and `AddProject`.
 - **Typed retry rules.** `AddExceptionRule<TException>` replaces the `"<full type name>:"` text
   keys, and the throttled exception implements `IRetryAfterHint`, so a retry never comes sooner
   than the server's Retry-After.
