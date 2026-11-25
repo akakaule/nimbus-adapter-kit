@@ -9,9 +9,9 @@ using TemplateAdapter.Adapter.Resilience;
 namespace TemplateAdapter.Tests;
 
 /// <summary>
-/// Which failures NimBus retries and which ones open the circuit. Retry rules match on the text
-/// NimBus builds from the exception (type name, message and stack trace), so the tests use that
-/// same text, including bodies that mention status codes as decoys.
+/// Which failures NimBus retries and which ones open the circuit. Retry rules match on the
+/// exception's type, so the tests pass the exception NimBus sees (the handler's exception inside
+/// the pipeline's wrapper), with messages that mention status codes and type names as decoys.
 /// </summary>
 [TestClass]
 public sealed class ResilienceTests
@@ -24,8 +24,8 @@ public sealed class ResilienceTests
         var options = new ExternalSystemResilienceOptions();
         var policies = Policies(options);
 
-        var throttled = policies.GetRetryPolicy(EventTypeId, MatchedText(new ExternalSystemThrottledException("PUT … → 429 Too Many Requests.", null)));
-        var unavailable = policies.GetRetryPolicy(EventTypeId, MatchedText(new ExternalSystemUnavailableException("PUT … → 503 Service Unavailable.")));
+        var throttled = policies.GetRetryPolicy(EventTypeId, Wrapped(new ExternalSystemThrottledException("PUT … → 429 Too Many Requests.", null)));
+        var unavailable = policies.GetRetryPolicy(EventTypeId, Wrapped(new ExternalSystemUnavailableException("PUT … → 503 Service Unavailable.")));
 
         Assert.IsNotNull(throttled);
         Assert.AreEqual(BackoffStrategy.Exponential, throttled.Strategy);
@@ -42,7 +42,7 @@ public sealed class ResilienceTests
 
         var rejected = policies.GetRetryPolicy(
             EventTypeId,
-            MatchedText(new ExternalSystemRejectedException("PUT … → 422. Body: limits 429/503 apply, see ExternalSystem docs", 422, "AccountNameRequired")));
+            Wrapped(new ExternalSystemRejectedException("PUT … → 422. Body: limits 429/503 apply, see ExternalSystem docs", 422, "AccountNameRequired")));
 
         Assert.IsNull(rejected, "A rejected request waits for an operator to fix the data and resubmit.");
     }
@@ -50,25 +50,36 @@ public sealed class ResilienceTests
     [TestMethod]
     public void ARejection_IsNeverRetried_EvenWhenItsTextNamesARetriedExceptionType()
     {
-        // Rules match text, so a message that echoes another exception's (short) type name must not
-        // borrow that exception's retry policy. Rules are keyed on "<full type name>:".
+        // Rules match the exception's type, never its text, so a message that echoes another
+        // exception's type name can't borrow that exception's retry policy.
         var policies = Policies(new ExternalSystemResilienceOptions());
 
         var rejected = policies.GetRetryPolicy(
             EventTypeId,
-            MatchedText(new ExternalSystemRejectedException(
+            Wrapped(new ExternalSystemRejectedException(
                 "Upsert ExternalSystem account 'ExternalSystemThrottledException' failed: … → 422. Error code: ExternalSystemUnavailableException_x.", 422, null)));
 
         Assert.IsNull(rejected);
     }
 
     [TestMethod]
-    public void RuleKeys_AreTheFullTypeNameFollowedByAColon()
+    public void AThrottledCall_CarriesTheServersRetryAfter_ForNimBusToHonour()
     {
-        var key = ExternalSystemResilience.RuleKey<ExternalSystemThrottledException>();
+        // NimBus waits for the longer of the policy delay and this hint, capped at MaxDelay.
+        Exception throttled = new ExternalSystemThrottledException("PUT … → 429 Too Many Requests.", TimeSpan.FromSeconds(90));
 
-        Assert.AreEqual(typeof(ExternalSystemThrottledException).FullName + ":", key);
-        StringAssert.StartsWith(new ExternalSystemThrottledException("x", null).ToString(), key, StringComparison.Ordinal);
+        var hint = Assert.IsInstanceOfType<IRetryAfterHint>(throttled);
+        Assert.AreEqual(TimeSpan.FromSeconds(90), hint.RetryAfter);
+    }
+
+    [TestMethod]
+    public void AnUnclassifiedException_IsNeverRetried()
+    {
+        // No default policy: only the three typed rules retry.
+        var policy = Policies(new ExternalSystemResilienceOptions())
+            .GetRetryPolicy(EventTypeId, Wrapped(new InvalidOperationException("ExternalSystemThrottledException: 429")));
+
+        Assert.IsNull(policy);
     }
 
     [TestMethod]
@@ -76,7 +87,7 @@ public sealed class ResilienceTests
     {
         var options = new ExternalSystemResilienceOptions();
 
-        var policy = Policies(options).GetRetryPolicy(EventTypeId, MatchedText(new MissingReferenceException("parent account", "ACC-1", "Sync it first.")));
+        var policy = Policies(options).GetRetryPolicy(EventTypeId, Wrapped(new MissingReferenceException("parent account", "ACC-1", "Sync it first.")));
 
         Assert.IsNotNull(policy);
         Assert.AreEqual(options.MissingReferenceMaxRetries, policy.MaxRetries);
@@ -114,7 +125,7 @@ public sealed class ResilienceTests
         // An outage that opens the circuit must not exhaust a message's retries before the circuit
         // can close again; otherwise every message in flight fails and needs an operator.
         var options = new ExternalSystemResilienceOptions();
-        var policy = Policies(options).GetRetryPolicy(EventTypeId, MatchedText(new ExternalSystemUnavailableException("503")))!;
+        var policy = Policies(options).GetRetryPolicy(EventTypeId, Wrapped(new ExternalSystemUnavailableException("503")))!;
 
         var total = Enumerable.Range(0, policy.MaxRetries).Aggregate(TimeSpan.Zero, (sum, attempt) => sum + policy.GetDelay(attempt, new Random(1)));
 
@@ -136,9 +147,7 @@ public sealed class ResilienceTests
         return new EndpointCircuitBreaker("ExternalSystemEndpoint", options, clock);
     }
 
-    /// <summary>What the breaker sees: the handler's exception, wrapped by the NimBus pipeline.</summary>
+    /// <summary>What the retry rules and the breaker see: the handler's exception, wrapped by the NimBus pipeline.</summary>
     private static EventContextHandlerException Wrapped(Exception inner) => new(inner);
 
-    /// <summary>The text NimBus matches retry rules against: "{inner} {wrapper}", stack traces included.</summary>
-    private static string MatchedText(Exception inner) => $"{inner} {Wrapped(inner)}";
 }

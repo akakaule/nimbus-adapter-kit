@@ -60,10 +60,11 @@ public static class ExternalSystemResilience
     /// (any other 4xx) is a data problem, so the message fails at once, its session blocks, and an
     /// operator fixes the data and resubmits.
     /// <para>
-    /// NimBus matches rules against TEXT: <c>"{inner exception} {exception}"</c>, which includes
-    /// messages and stack traces. Each rule is therefore keyed on <see cref="RuleKey{TException}"/>,
-    /// the exception's full type name followed by a colon, which is how <c>Exception.ToString()</c>
-    /// starts. A bare "429", or a short type name echoed in a message, can't match it.
+    /// Each rule matches the exception's TYPE (the handler's exception or any inner exception),
+    /// never its text. A text rule such as "429" would also match a line number, an id or a
+    /// response body. A throttled call also carries the server's Retry-After
+    /// (<see cref="IRetryAfterHint"/>): NimBus waits for the longer of that and the policy delay,
+    /// capped at <c>MaxDelay</c>.
     /// </para>
     /// </summary>
     public static void ConfigureRetries(DefaultRetryPolicyProvider policies, ExternalSystemResilienceOptions options)
@@ -72,7 +73,7 @@ public static class ExternalSystemResilience
         ArgumentNullException.ThrowIfNull(options);
 
         policies
-            .AddExceptionRule(RuleKey<ExternalSystemThrottledException>(), new RetryPolicy
+            .AddExceptionRule<ExternalSystemThrottledException>(new RetryPolicy
             {
                 MaxRetries = options.ThrottledMaxRetries,
                 Strategy = BackoffStrategy.Exponential,
@@ -80,7 +81,7 @@ public static class ExternalSystemResilience
                 MaxDelay = TimeSpan.FromSeconds(options.ThrottledMaxDelaySeconds),
                 Jitter = JitterMode.Bounded,
             })
-            .AddExceptionRule(RuleKey<ExternalSystemUnavailableException>(), new RetryPolicy
+            .AddExceptionRule<ExternalSystemUnavailableException>(new RetryPolicy
             {
                 MaxRetries = options.UnavailableMaxRetries,
                 Strategy = BackoffStrategy.Exponential,
@@ -88,20 +89,13 @@ public static class ExternalSystemResilience
                 MaxDelay = TimeSpan.FromSeconds(options.UnavailableMaxDelaySeconds),
                 Jitter = JitterMode.Bounded,
             })
-            .AddExceptionRule(RuleKey<MissingReferenceException>(), new RetryPolicy
+            .AddExceptionRule<MissingReferenceException>(new RetryPolicy
             {
                 MaxRetries = options.MissingReferenceMaxRetries,
                 Strategy = BackoffStrategy.Fixed,
                 BaseDelay = TimeSpan.FromSeconds(options.MissingReferenceDelaySeconds),
             });
     }
-
-    /// <summary>
-    /// The text a retry rule matches for <typeparamref name="TException"/>: its full type name and
-    /// the colon that <c>Exception.ToString()</c> writes after it.
-    /// </summary>
-    public static string RuleKey<TException>() where TException : Exception =>
-        typeof(TException).FullName + ":";
 
     /// <summary>
     /// Pauses the adapter while ExternalSystem is down. Only outages count: throttling is paced by

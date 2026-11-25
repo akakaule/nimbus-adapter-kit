@@ -1,10 +1,11 @@
 #pragma warning disable CA1032 // Only the client creates these, always with the details NimBus needs.
+using NimBus.Core.Messages;
+
 namespace TemplateAdapter.Adapter.Clients;
 
 // The three ways an ExternalSystem call can fail, as distinct exception TYPES:
 //
-// - NimBus retry rules match on text that contains the exception type name (and the stack trace),
-//   so the rules in Resilience/ are keyed on these names, never on a bare status code like "429",
+// - The NimBus retry rules in Resilience/ match these types, never text such as a bare "429",
 //   which could also match a line number or a response body.
 // - The circuit breaker excludes rejections and throttling by type.
 // - None of the names contains "Validation", "Serialization" or "Deserialization": the opt-in
@@ -19,12 +20,13 @@ public abstract class ExternalSystemException(string message, Exception? innerEx
 
 /// <summary>
 /// 429 Too Many Requests: ExternalSystem's rate limit is exceeded. Transient: NimBus retries it with
-/// exponential backoff. Excluded from the circuit breaker, because throttling is pacing, not an outage.
+/// exponential backoff, and waits at least <see cref="RetryAfter"/>. Excluded from the circuit
+/// breaker, because throttling is pacing, not an outage.
 /// </summary>
 public sealed class ExternalSystemThrottledException(string message, TimeSpan? retryAfter)
-    : ExternalSystemException(message)
+    : ExternalSystemException(message), IRetryAfterHint
 {
-    /// <summary>The server's Retry-After hint, if it sent one.</summary>
+    /// <summary>The server's Retry-After hint, if it sent one. NimBus never retries sooner than this.</summary>
     public TimeSpan? RetryAfter { get; } = retryAfter;
 }
 

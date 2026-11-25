@@ -90,8 +90,7 @@ internal static class HttpFailure
     /// <summary>
     /// Keeps an error code only if it looks like one: letters, digits, <c>_ . -</c>, at most 64
     /// characters (for example <c>0x80040237</c>, <c>Application_DialogException</c>). Anything else
-    /// is vendor free text, which can carry personal data, so it is dropped. No colon is allowed: the
-    /// retry rules are keyed on <c>"&lt;full type name&gt;:"</c>, so a code can never match one.
+    /// is vendor free text, which can carry personal data, so it is dropped.
     /// </summary>
     internal static string? SanitizeErrorCode(string? code)
     {
