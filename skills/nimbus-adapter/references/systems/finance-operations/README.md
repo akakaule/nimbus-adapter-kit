@@ -487,9 +487,10 @@ Classify into the template's three exception types. The circuit breaker counts o
   "… → 200 OK. The response is not the OData collection the adapter expects".
 
 **Retry budget vs. lock:**
-- The template's NimBus retry rule for Throttled starts at 15 s and doubles up to 300 s; it does not
-  read `Retry-After`. If F&O's `Retry-After` values are longer, raise
-  `ExternalSystem:Resilience:ThrottledBaseDelaySeconds`.
+- The template's NimBus retry rule for Throttled starts at 15 s and doubles up to 300 s. The
+  throttled exception carries F&O's `Retry-After`, and NimBus waits for the longer of the two,
+  capped at 300 s (NimBus 5.6.0 source). If F&O's `Retry-After` values are longer than that,
+  raise `ExternalSystem:Resilience:ThrottledMaxDelaySeconds`, or the cap cuts the wait short.
 - Under sustained throttling, lower `Adapter:MaxConcurrentSessions` rather than raising the retry
   count, and set a throttling priority for the app. A production adapter's throttling design
   recommends the same **[proven in production]**.

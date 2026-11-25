@@ -66,7 +66,8 @@ dotnet test TemplateAdapter.slnx -c Release
   to start from an empty namespace, for example after you remove an endpoint from the catalog.
 - The emulator has topics and subscriptions, but **no queues**. An adapter generated with
   `--Ingress true` therefore starts without its ingress queue and with the ingress worker off
-  (`Ingress:Enabled` is false); the provisioner's log says so.
+  (`Ingress:Enabled` is false); the provisioner's log says so, and the simulator's
+  `/emulator/accounts/{key}/changed` driver answers 503.
 - To run against a real Service Bus namespace instead (the ingress path, a sandbox test), use a
   namespace of your own (Standard tier). Never use the one a deployed adapter listens on: two
   adapters on one subscription compete for the same messages.

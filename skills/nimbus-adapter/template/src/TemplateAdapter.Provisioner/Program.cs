@@ -27,11 +27,12 @@ await provisioner.ApplyAsync(CancellationToken.None);
 // catalog). In Azure the Bicep creates it with the same settings.
 var ingressQueue = Environment.GetEnvironmentVariable("Ingress__QueueName") ?? "externalsystem-changes";
 var admin = new ServiceBusAdministrationClient(connectionString);
-if (connectionString.Contains("UseDevelopmentEmulator=true", StringComparison.OrdinalIgnoreCase))
+if (string.Equals(Environment.GetEnvironmentVariable("Ingress__Enabled"), "false", StringComparison.OrdinalIgnoreCase))
 {
-    // The NimBus Service Bus emulator has topics and subscriptions only. The AppHost switches the
-    // adapter's ingress worker off there; use a namespace of your own to run the ingress path.
-    Console.WriteLine($"Skipped the ingress queue '{ingressQueue}': the Service Bus emulator has no queues.");
+    // The AppHost sets this on the NimBus Service Bus emulator, which has topics and subscriptions
+    // only, and switches the adapter's ingress worker off with the same setting. Use a namespace of
+    // your own to run the ingress path.
+    Console.WriteLine($"Skipped the ingress queue '{ingressQueue}': ingress is switched off (the Service Bus emulator has no queues).");
 }
 else if (!await admin.QueueExistsAsync(ingressQueue))
 {

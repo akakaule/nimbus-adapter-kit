@@ -87,6 +87,10 @@ var adapter = builder.AddProject("adapter", "../TemplateAdapter.Adapter/Template
 if (!ownNamespace)
 {
 #if (IngressEnabled)
+    // No queues on the emulator: no ingress queue, no ingress worker, and the simulator's change
+    // driver answers 503 instead of sending to a queue that isn't there.
+    provisioner.WithEnvironment("Ingress__Enabled", "false");
+    simulator.WithEnvironment("Ingress__Enabled", "false");
     adapter.WithEnvironment("Ingress__Enabled", "false");
 
 #endif

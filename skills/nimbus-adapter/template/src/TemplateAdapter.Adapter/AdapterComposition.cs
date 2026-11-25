@@ -168,7 +168,13 @@ public static class AdapterComposition
             ? new TableClient(new Uri(connection), tableName, new DefaultAzureCredential())
             : new TableClient(connection, tableName);
 
-    private static bool IsTableEndpoint(string connection) =>
-        Uri.TryCreate(connection, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
+    private static bool IsTableEndpoint(string connection)
+    {
+        if (!Uri.TryCreate(connection, UriKind.Absolute, out var uri))
+            return false;
+        if (uri.Scheme == Uri.UriSchemeHttp)
+            throw new InvalidOperationException($"ConnectionStrings:{InboxConnectionName} must be an https table endpoint or a storage connection string; an identity cannot sign in over http.");
+        return uri.Scheme == Uri.UriSchemeHttps;
+    }
 #endif
 }

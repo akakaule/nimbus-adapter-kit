@@ -37,8 +37,8 @@ move to NimBus 5.6.
 - **No personal data in failure texts.** NimBus stores exception messages unmasked in the audit
   trail. Failure texts now carry operation, method, path (no query), status and a sanitized
   vendor error code, but no response body.
-- **Precise retry rules.** They are keyed on `<full type name>:`. Error codes can't contain `:`,
-  so vendor text can't steer a rejection into a retry rule.
+- **Sanitized error codes.** A vendor error code is kept only if it looks like one (letters,
+  digits, `_ . -`, at most 64 characters); free text is dropped.
 - **Malformed successes.** A `200` that isn't the expected shape is Unavailable, never "not found"
   (template client and all three snippets).
 - **Token failures.** A failure to get a token is classified as Unavailable, with distinct
