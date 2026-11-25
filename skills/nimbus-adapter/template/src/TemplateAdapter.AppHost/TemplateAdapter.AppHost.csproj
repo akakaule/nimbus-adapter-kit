@@ -1,14 +1,15 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <IsAspireHost>true</IsAspireHost>
-    <AspireUseCliBundle>true</AspireUseCliBundle>
     <UserSecretsId>5d7a3b1e-2c4f-4b8a-9e61-0f3c2a9d7e45</UserSecretsId>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The AppHost build targets, and AddDotnetProject for the adapter, provisioner and simulator. -->
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.Dotnet" />
     <!-- The NimBus Service Bus emulator, Resolver and WebApp as local resources, from packages. -->
     <PackageReference Include="Akaule.NimBus.AspireHosting" />
     <!-- SQL Server for the NimBus message store (and the SQL inbox, when the adapter has one). -->
@@ -20,15 +21,13 @@
     <PackageReference Include="CONTRACTS_PACKAGE_ID" />
 #endif -->
   </ItemGroup>
+<!--#if (!ContractsPackage) -->
 
   <ItemGroup>
-    <ProjectReference Include="..\TemplateAdapter.Adapter\TemplateAdapter.Adapter.csproj" />
-<!--#if (!ContractsPackage) -->
-    <!-- The catalog, as a plain reference: the WebApp renders it and it is not a resource to run. -->
-    <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" IsAspireProjectResource="false" />
-<!--#endif -->
-    <ProjectReference Include="..\TemplateAdapter.Provisioner\TemplateAdapter.Provisioner.csproj" />
-    <ProjectReference Include="..\TemplateAdapter.Simulator\TemplateAdapter.Simulator.csproj" />
+    <!-- The catalog, as an ordinary reference: the WebApp renders it. The projects the AppHost
+         runs are added by path in Program.cs and need no reference here. -->
+    <ProjectReference Include="..\TemplateAdapter.Contracts\TemplateAdapter.Contracts.csproj" />
   </ItemGroup>
+<!--#endif -->
 
 </Project>
