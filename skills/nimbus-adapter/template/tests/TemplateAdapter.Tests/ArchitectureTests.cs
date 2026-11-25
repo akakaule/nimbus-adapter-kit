@@ -113,7 +113,22 @@ public sealed class ArchitectureTests
     }
 
 #endif
-    private static IHost BuildHost()
+#if (IngressEnabled)
+    [TestMethod]
+    public void Ingress_CanBeSwitchedOff_WhereThereIsNoIngressQueue()
+    {
+        // The local NimBus emulator has no queues, so the AppHost sets Ingress:Enabled to false
+        // there. The rest of the adapter must still start.
+        using var host = BuildHost(new() { ["Ingress:Enabled"] = "false" });
+
+        var hostedServices = host.Services.GetServices<IHostedService>().Select(s => s.GetType().Name).ToList();
+
+        CollectionAssert.DoesNotContain(hostedServices, "IngressWorker");
+        CollectionAssert.Contains(hostedServices, "NimBusReceiverHostedService");
+    }
+
+#endif
+    private static IHost BuildHost(Dictionary<string, string?>? overrides = null)
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = Environments.Development });
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -128,6 +143,8 @@ public sealed class ArchitectureTests
 #endif
             ["ExternalSystem:BaseUrl"] = "http://externalsystem.test",
         });
+        if (overrides is not null)
+            builder.Configuration.AddInMemoryCollection(overrides);
         builder.AddAdapter();
         return builder.Build();
     }

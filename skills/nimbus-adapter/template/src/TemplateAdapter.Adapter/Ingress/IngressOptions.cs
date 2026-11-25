@@ -7,6 +7,12 @@ public sealed class IngressOptions
     public const string SectionName = "Ingress";
 
     /// <summary>
+    /// Whether the ingress worker runs. The local AppHost sets it to false on the NimBus Service Bus
+    /// emulator, which has no queues; everywhere else leave it on.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
     /// The Service Bus queue ExternalSystem's trigger writes change notifications to. Created by the
     /// provisioner locally and by the Bicep in Azure. Not a NimBus topic: it belongs to this adapter.
     /// </summary>

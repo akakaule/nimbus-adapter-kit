@@ -1,6 +1,6 @@
 # TemplateAdapter
 
-A [NimBus](https://github.com/akakaule/NimBus) adapter that connects **ExternalSystem** to the
+A [NimBus](https://github.com/context-and-oss/NimBus) adapter that connects **ExternalSystem** to the
 NimBus event bus. It runs as a worker (Azure Container App), receives on
 `ExternalSystemEndpoint`, and calls the ExternalSystem API.
 
@@ -15,7 +15,7 @@ flow live in [`docs/flows/`](docs/flows/), and the TDD and events catalog in [`d
 | `src/TemplateAdapter.Adapter` | The adapter: `AdapterComposition` (all wiring), `Clients/` (ExternalSystem API + failure types), `Handlers/`, `Mapping/`, `Resilience/`, and `Ingress/` when generated with `--Ingress true` (change notifications from a queue, re-read and published) |
 | `src/TemplateAdapter.Simulator` | A local stand-in for the ExternalSystem API with fault injection, plus an upstream driver that publishes sample events |
 | `src/TemplateAdapter.Provisioner` | Applies the Service Bus topology from the catalog (local runs) |
-| `src/TemplateAdapter.AppHost` | Aspire: provisioner, simulator and adapter in one command |
+| `src/TemplateAdapter.AppHost` | Aspire: the NimBus Service Bus emulator, provisioner, simulator, adapter, and the NimBus Resolver and WebApp in one command |
 | `tests/TemplateAdapter.Tests` | Client classification, retry rules, circuit breaker, handlers, pipeline, catalog and architecture tests |
 | `deploy/` | Bicep for the Container App, per-environment parameters, the pipeline deploy stage |
 | `azure-pipelines.yml` | Build, test (gate), image, then deploy dev, test and prod |
@@ -29,18 +29,20 @@ dotnet test TemplateAdapter.slnx -c Release
 
 ## Run it locally
 
-1. Use a Service Bus namespace of your own (Standard tier). Never use the one a deployed adapter
-   listens on: two adapters on one subscription compete for the same messages.
-
-   ```powershell
-   dotnet user-secrets set "ConnectionStrings:servicebus" "<connection string>" --project src/TemplateAdapter.AppHost
-   ```
-
-2. Start the stack (needs Docker for the inbox's SQL Server):
+1. Start the stack. It needs Docker, for the SQL Server the NimBus Resolver and WebApp store in:
 
    ```powershell
    dotnet run --project src/TemplateAdapter.AppHost
    ```
+
+   It runs the NimBus Service Bus emulator, the provisioner, the simulator, the adapter, and the
+   NimBus Resolver and WebApp. The NimBus parts are dotnet tools restored from NuGet through this
+   repo's `NuGet.config`; nothing is installed globally. The first start downloads them and the
+   SQL Server image.
+
+2. In the Aspire dashboard, open `nimbus-ops` (the WebApp, on its `https` endpoint) to see the
+   audit trail and to resubmit or skip failed messages. It runs with a local sign-in bypass, so it
+   is for local work only.
 
 3. In the Aspire dashboard, open the simulator's URL and drive it:
    - `POST /emulator/upstream/accounts` with
@@ -56,8 +58,25 @@ dotnet test TemplateAdapter.slnx -c Release
      account and publishes `ExternalSystemAccountUpdated`. The adapter's own writes send no
      notification; that is the echo filter at the source, which the real system's trigger must do too.
 
-The NimBus Resolver and WebApp are not part of this stack. Use your dev environment's, or run NimBus
-from source, to see the audit trail and to resubmit or skip failed messages.
+### The emulator's limits, and a namespace of your own
+
+- The emulator keeps messages in memory, so they are gone after a restart. It keeps the
+  **topology** between runs, in this adapter's own file,
+  `nimbus-sbemulator/TemplateAdapter/topology.json` under the temp directory. Delete that file
+  to start from an empty namespace, for example after you remove an endpoint from the catalog.
+- The emulator has topics and subscriptions, but **no queues**. An adapter generated with
+  `--Ingress true` therefore starts without its ingress queue and with the ingress worker off
+  (`Ingress:Enabled` is false); the provisioner's log says so.
+- To run against a real Service Bus namespace instead (the ingress path, a sandbox test), use a
+  namespace of your own (Standard tier). Never use the one a deployed adapter listens on: two
+  adapters on one subscription compete for the same messages.
+
+  ```powershell
+  dotnet user-secrets set "ConnectionStrings:servicebus" "<connection string>" --project src/TemplateAdapter.AppHost
+  ```
+
+  With that set, the AppHost starts no emulator, Resolver or WebApp: use the Resolver and WebApp of
+  the environment the namespace belongs to.
 
 ## Add a flow
 
@@ -88,7 +107,10 @@ One-time setup:
 3. After the first deployment, give the adapter's managed identity (output
    `identityPrincipalId`) access to ExternalSystem, for example as an application user. Then set
    `externalSystemScope`.
-4. Inbox:
+4. Inbox in Azure Table Storage (`--InboxStore table`): set `inboxStorageAccountName` in each
+   parameter file. The Bicep creates the account and the `NimBusInbox` table, and gives the
+   adapter's identity **Storage Table Data Contributor** on that table only. There is no secret.
+5. Inbox in SQL Server (the default):
    - Store the integration database connection string as a secret in a Key Vault in the same
      resource group. The vault must use the Azure RBAC permission model.
    - Name the secret as `integrationDatabaseSecretName` says (default
@@ -114,4 +136,6 @@ One-time setup:
 
 Change `<NimBusVersion>` in `Directory.Packages.props` and `nimbusVersion` in
 `azure-pipelines.yml`, keeping them equal to the NimBus version your Resolver and WebApp run. Then
-build in Release and run the tests.
+build in Release and run the tests. The local stack follows along: the AppHost runs the emulator,
+Resolver and WebApp of the same version. Read the
+[release notes](https://github.com/context-and-oss/NimBus/releases) of every version in between.

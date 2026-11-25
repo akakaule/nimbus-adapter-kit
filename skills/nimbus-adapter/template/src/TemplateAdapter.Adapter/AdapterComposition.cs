@@ -121,7 +121,8 @@ public static class AdapterComposition
         builder.Services.AddSingleton(ingress);
         builder.Services.AddNimBusPublisher(EndpointName);
         builder.Services.AddSingleton<IngressProcessor>();
-        builder.Services.AddHostedService<IngressWorker>();
+        if (ingress.Enabled)
+            builder.Services.AddHostedService<IngressWorker>();
 #endif
 
         return builder;

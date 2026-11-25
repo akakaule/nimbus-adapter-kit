@@ -36,9 +36,8 @@
   </ItemGroup>
 
   <ItemGroup Label="Local AppHost">
-<!--#if (InboxSql) -->
+    <PackageVersion Include="Akaule.NimBus.AspireHosting" Version="$(NimBusVersion)" />
     <PackageVersion Include="Aspire.Hosting.SqlServer" Version="$(AspireVersion)" />
-<!--#endif -->
 <!--#if (InboxTable) -->
     <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="$(AspireVersion)" />
 <!--#endif -->
