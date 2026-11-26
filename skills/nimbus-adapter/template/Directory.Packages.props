@@ -4,7 +4,7 @@
     <!-- One NimBus version for every Akaule.NimBus.* package. Upgrade NimBus by changing this line;
          keep it equal to the NimBus version your Resolver and WebApp run. -->
     <NimBusVersion>5.6.0</NimBusVersion>
-    <AspireVersion>13.6.5</AspireVersion>
+    <AspireVersion>17.0.0</AspireVersion>
   </PropertyGroup>
 
   <ItemGroup Label="NimBus">
@@ -36,6 +36,8 @@
   </ItemGroup>
 
   <ItemGroup Label="Local AppHost">
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="$(AspireVersion)" />
+    <PackageVersion Include="Aspire.Hosting.Dotnet" Version="$(AspireVersion)" />
     <PackageVersion Include="Akaule.NimBus.AspireHosting" Version="$(NimBusVersion)" />
     <PackageVersion Include="Aspire.Hosting.SqlServer" Version="$(AspireVersion)" />
 <!--#if (InboxTable) -->

@@ -58,11 +58,11 @@ var inbox = builder.AddAzureStorage("storage").RunAsEmulator().AddTables("inbox"
 
 // Projects are added by path so the resource names stay stable whatever the solution is called.
 // The provisioner applies the catalog's topology; everything that uses the bus waits for it.
-var provisioner = builder.AddProject("provisioner", "../TemplateAdapter.Provisioner/TemplateAdapter.Provisioner.csproj")
+var provisioner = builder.AddDotnetProject("provisioner", "../TemplateAdapter.Provisioner/TemplateAdapter.Provisioner.csproj")
     .WithReference(servicebus)
     .WaitFor(servicebus);
 
-var simulator = builder.AddProject("externalsystem-simulator", "../TemplateAdapter.Simulator/TemplateAdapter.Simulator.csproj")
+var simulator = builder.AddDotnetProject("externalsystem-simulator", "../TemplateAdapter.Simulator/TemplateAdapter.Simulator.csproj")
     .WithReference(servicebus)
     // The simulator has no launch profile, so its endpoint is declared here: the adapter finds it
     // through service discovery ("https+http://externalsystem-simulator").
@@ -70,7 +70,7 @@ var simulator = builder.AddProject("externalsystem-simulator", "../TemplateAdapt
     .WithExternalHttpEndpoints()
     .WaitForCompletion(provisioner);
 
-var adapter = builder.AddProject("adapter", "../TemplateAdapter.Adapter/TemplateAdapter.Adapter.csproj")
+var adapter = builder.AddDotnetProject("adapter", "../TemplateAdapter.Adapter/TemplateAdapter.Adapter.csproj")
     .WithReference(servicebus)
     .WithReference(simulator)
 #if (InboxSql)
